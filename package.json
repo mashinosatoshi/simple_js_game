@@ -1,0 +1,15 @@
+{
+  "name": "simple-js-game",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simple SPA game served from Cloud Run",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
