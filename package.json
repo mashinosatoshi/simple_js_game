@@ -2,14 +2,28 @@
   "name": "simple-js-game",
   "version": "0.1.0",
   "private": true,
-  "description": "Simple SPA game served from Cloud Run",
-  "main": "src/server.js",
+  "description": "Incremental game (Vue SPA) served from Cloud Run",
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "start": "node server/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "vue-tsc --noEmit"
   },
   "engines": {
     "node": ">=24"
+  },
+  "dependencies": {
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3",
+    "vue-tsc": "^3.3.12"
   }
 }
