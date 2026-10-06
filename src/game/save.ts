@@ -1,4 +1,4 @@
-import { createInitialState, SAVE_VERSION, type GameState } from './state';
+import { createInitialState, SAVE_VERSION, UPGRADE_IDS, UPGRADES, type GameState, type UpgradeId } from './state';
 
 const STORAGE_KEY = 'simple-js-game:save';
 
@@ -6,7 +6,7 @@ const STORAGE_KEY = 'simple-js-game:save';
  * 保存データを検証して GameState に変換する。形式が変わったときはここで旧バージョンから移行する。
  * 不正なデータなら null を返す。
  */
-export function deserialize(json: string): GameState | null {
+export function deserialize(json: string, now: number): GameState | null {
   let data: unknown;
   try {
     data = JSON.parse(json);
@@ -16,16 +16,34 @@ export function deserialize(json: string): GameState | null {
   if (typeof data !== 'object' || data === null) return null;
   const d = data as Record<string, unknown>;
 
-  // 例: if (d.version === 1) { d = migrateV1toV2(d) } のように移行処理を足していく
+  // v1 はコインを掘るゲームだったので、引き継げる要素がない。新しいゲームとして始める
+  if (d.version === 1) return createInitialState(now);
   if (d.version !== SAVE_VERSION) return null;
 
-  if (!isNonNegativeNumber(d.coins) || !isNonNegativeNumber(d.miners) || !isNonNegativeNumber(d.lastUpdate)) {
+  if (
+    !isNonNegativeInteger(d.balls) ||
+    !isNonNegativeInteger(d.bestBalls) ||
+    !isNonNegativeInteger(d.totalDrops) ||
+    !isNonNegativeNumber(d.lastUpdate) ||
+    typeof d.upgrades !== 'object' ||
+    d.upgrades === null
+  ) {
     return null;
+  }
+  const rawUpgrades = d.upgrades as Record<string, unknown>;
+  const upgrades = {} as Record<UpgradeId, number>;
+  for (const id of UPGRADE_IDS) {
+    // 後から追加したアップグレードは 0 として扱う
+    const level = rawUpgrades[id] ?? 0;
+    if (!isNonNegativeInteger(level) || level > UPGRADES[id].maxLevel) return null;
+    upgrades[id] = level;
   }
   return {
     version: SAVE_VERSION,
-    coins: d.coins,
-    miners: Math.floor(d.miners),
+    balls: d.balls,
+    bestBalls: d.bestBalls,
+    totalDrops: d.totalDrops,
+    upgrades,
     lastUpdate: d.lastUpdate,
   };
 }
@@ -45,7 +63,7 @@ export function saveToStorage(state: GameState): void {
 export function loadFromStorage(now: number): GameState {
   try {
     const json = localStorage.getItem(STORAGE_KEY);
-    if (json) return deserialize(json) ?? createInitialState(now);
+    if (json) return deserialize(json, now) ?? createInitialState(now);
   } catch (e) {
     console.warn('Failed to load game', e);
   }
@@ -65,9 +83,9 @@ export function exportSave(state: GameState): string {
   return btoa(serialize(state));
 }
 
-export function importSave(text: string): GameState | null {
+export function importSave(text: string, now: number): GameState | null {
   try {
-    return deserialize(atob(text.trim()));
+    return deserialize(atob(text.trim()), now);
   } catch {
     return null;
   }
@@ -75,4 +93,8 @@ export function importSave(text: string): GameState | null {
 
 function isNonNegativeNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
+function isNonNegativeInteger(v: unknown): v is number {
+  return isNonNegativeNumber(v) && Number.isInteger(v);
 }

@@ -3,11 +3,16 @@
   --panel: #ffffff;
   --text: #1d2330;
   --muted: #667085;
-  --border: #dde1e7;
+  --border: #c9cfd8;
   --accent: #2f6fde;
   --accent-text: #ffffff;
   --danger: #c4372f;
   --notice: #e8f1ff;
+  --board-bg: #eef1f6;
+  --peg: #7a8599;
+  --ball: #e08a00;
+  --plus: #1f9d55;
+  --minus: #d64545;
 
   color-scheme: light dark;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
@@ -20,10 +25,15 @@
     --panel: #1e232b;
     --text: #e6e9ef;
     --muted: #98a2b3;
-    --border: #2f3640;
+    --border: #3a4250;
     --accent: #5b8ff0;
     --danger: #e5675f;
     --notice: #1f2d45;
+    --board-bg: #161a21;
+    --peg: #8994a8;
+    --ball: #ffb02e;
+    --plus: #3ccf7e;
+    --minus: #f06a6a;
   }
 }
 
@@ -38,24 +48,24 @@ body {
 }
 
 .container {
-  max-width: 560px;
+  max-width: 480px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 20px 16px 48px;
 }
 
 .header {
   text-align: center;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .header h1 {
   font-size: 1rem;
   font-weight: 600;
   color: var(--muted);
-  margin: 0 0 8px;
+  margin: 0 0 4px;
 }
 
-.coins {
+.balls {
   font-size: 2.5rem;
   font-weight: 700;
   margin: 0;
@@ -68,7 +78,7 @@ body {
   color: var(--muted);
 }
 
-.rate {
+.sub {
   margin: 0;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -85,6 +95,17 @@ body {
 .panel h2 {
   font-size: 1rem;
   margin: 0 0 12px;
+}
+
+.board-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.board-panel .hint {
+  margin: 0;
+  text-align: center;
 }
 
 .notice {
@@ -114,12 +135,13 @@ button.primary {
   border-color: var(--accent);
   color: var(--accent-text);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 button.big {
   width: 100%;
-  padding: 20px;
-  font-size: 1.25rem;
+  padding: 14px;
+  font-size: 1.1rem;
   font-weight: 600;
 }
 
@@ -135,26 +157,48 @@ button.link {
   text-decoration: underline;
 }
 
-.building {
+.upgrades {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.upgrade {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
 }
 
-.building-name {
+.upgrade-name {
   font-weight: 600;
 }
 
-.owned {
+.level {
   color: var(--muted);
   font-weight: 500;
+  font-size: 0.875rem;
 }
 
-.building-desc,
+.upgrade-desc,
 .hint {
   font-size: 0.875rem;
   color: var(--muted);
+}
+
+.stats {
+  display: flex;
+  justify-content: space-around;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.stats strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 summary {
