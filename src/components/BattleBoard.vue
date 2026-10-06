@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue';
 import {
   ballRadius,
+  cellIndex,
   CELL_COUNT,
   CELL_SIZE,
   CORE_RADIUS,
@@ -33,6 +34,15 @@ const teamRgb = TEAMS.map((t) => hexToRgb(t.color));
 /** 自分の陣地の上でも見えるよう、弾は陣地より明るい色で描く */
 const ballColors = teamRgb.map((rgb) => toCss(mix(rgb, [255, 255, 255], 0.5)));
 const coreColors = teamRgb.map((rgb) => toCss(mix(rgb, [0, 0, 0], 0.25)));
+/**
+ * 侵略されているときの点線の色 (下にあるマスの持ち主ごと)。どの色のマスの上でも見えるよう、マスの色の反転色を使う
+ */
+const zoneAlertRgbByOwner = new Map<number, Rgb>([
+  [NEUTRAL, contrastRgb(NEUTRAL_RGB)],
+  ...teamRgb.map((rgb, team): [number, Rgb] => [team, contrastRgb(rgb)]),
+]);
+const ZONE_DASH = 4;
+const ZONE_GAP = 6;
 
 function hexToRgb(hex: string): Rgb {
   const n = parseInt(hex.slice(1), 16);
@@ -41,6 +51,15 @@ function hexToRgb(hex: string): Rgb {
 function mix(a: Rgb, b: Rgb, t: number): Rgb {
   return [0, 1, 2].map((i) => Math.round(a[i]! + (b[i]! - a[i]!) * t)) as Rgb;
 }
+/** rgb の上で目立つ色。基本は反転色だが、灰色のように反転しても似た色になる場合は黒か白にする */
+function contrastRgb(rgb: Rgb): Rgb {
+  const inverted = rgb.map((v) => 255 - v) as Rgb;
+  const distance = Math.hypot(...rgb.map((v, i) => v - inverted[i]!));
+  if (distance >= 120) return inverted;
+  const luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+  return luminance > 128 ? [0, 0, 0] : [255, 255, 255];
+}
+
 function toCss([r, g, b]: Rgb, alpha = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
@@ -166,19 +185,45 @@ function drawGimmicks(b: Battle) {
   }
 }
 
+/**
+ * 侵略されている本拠地の点線を点滅させる。線分ごとに、その下にあるマスの色の反転色で描く。
+ * 同じ色の線分は 1 つのパスにまとめて描く (線分ごとに描くと数百回の描画になるため)
+ */
+function drawAlertRing(b: Battle, x: number, y: number, radius: number, alpha: number) {
+  const c = ctx!;
+  const paths = new Map<number, Path2D>();
+  const dashAngle = ZONE_DASH / radius;
+  const stepAngle = (ZONE_DASH + ZONE_GAP) / radius;
+  for (let angle = 0; angle < Math.PI * 2; angle += stepAngle) {
+    const middle = angle + dashAngle / 2;
+    const mx = x + Math.cos(middle) * radius;
+    const my = y + Math.sin(middle) * radius;
+    if (mx < 0 || my < 0 || mx >= FIELD_SIZE || my >= FIELD_SIZE) continue;
+    const owner = b.owner[cellIndex(Math.floor(mx / CELL_SIZE), Math.floor(my / CELL_SIZE))]!;
+    let path = paths.get(owner);
+    if (!path) paths.set(owner, (path = new Path2D()));
+    path.moveTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+    path.arc(x, y, radius, angle, angle + dashAngle);
+  }
+  c.lineWidth = 3;
+  for (const [owner, path] of paths) {
+    c.strokeStyle = toCss(zoneAlertRgbByOwner.get(owner)!, alpha);
+    c.stroke(path);
+  }
+}
+
 function drawCores(b: Battle) {
   const c = ctx!;
   const zoneRadius = b.coreZoneRadius();
   for (const core of b.cores) {
     // 本拠地の周りの「塗られると削られる」範囲。サドンデス中は広がっていく
-    if (core.alive) {
+    if (core.alive && core.zoneEnemyCells > 0) {
+      drawAlertRing(b, core.x, core.y, zoneRadius, 0.55 + 0.4 * Math.sin(b.time * 10));
+    } else if (core.alive) {
       circle(core.x, core.y, zoneRadius);
       c.lineWidth = b.suddenDeath() ? 3 : 2;
-      c.setLineDash([4, 6]);
-      c.strokeStyle =
-        core.zoneEnemyCells > 0
-          ? `rgba(255, 60, 60, ${0.5 + 0.4 * Math.sin(b.time * 10)})`
-          : 'rgba(255, 255, 255, 0.35)';
+      c.setLineDash([ZONE_DASH, ZONE_GAP]);
+      c.strokeStyle = 'rgba(255, 255, 255, 0.35)';
       c.stroke();
       c.setLineDash([]);
     }
@@ -191,10 +236,10 @@ function drawCores(b: Battle) {
       continue;
     }
 
-    // 砲身
+    // 砲身。侵略された部分を狙っている (防衛中の) 間は赤くする
     c.lineWidth = 9;
     c.lineCap = 'round';
-    c.strokeStyle = '#222';
+    c.strokeStyle = core.defending ? '#d0102a' : '#222';
     c.beginPath();
     c.moveTo(core.x, core.y);
     c.lineTo(core.x + Math.cos(core.aim) * (CORE_RADIUS + 10), core.y + Math.sin(core.aim) * (CORE_RADIUS + 10));

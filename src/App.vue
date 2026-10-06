@@ -4,7 +4,7 @@ import { useBattle } from './composables/useBattle';
 import { TEAMS } from './game/battle';
 import { formatClock, formatPercent, formatPlace } from './game/format';
 
-const { battle, scores, events, elapsed, speed, nextMatchIn, wins, skip, replay } = useBattle();
+const { battle, scores, events, elapsed, speed, skip, replay } = useBattle();
 const SPEEDS = [1, 2, 4];
 </script>
 
@@ -44,10 +44,7 @@ const SPEEDS = [1, 2, 4];
                 </span>
               </li>
             </ol>
-            <p class="result-sub">
-              Match time {{ formatClock(Math.floor(elapsed)) }}
-              <template v-if="nextMatchIn !== null"> · Next match in {{ Math.ceil(nextMatchIn) }}s</template>
-            </p>
+            <p class="result-sub">Match time {{ formatClock(Math.floor(elapsed)) }}</p>
             <div class="result-actions">
               <button @click="replay">Watch again</button>
               <button class="primary" @click="skip">Next match</button>
@@ -103,14 +100,9 @@ const SPEEDS = [1, 2, 4];
       </section>
 
       <section class="panel">
-        <h2>Total wins</h2>
-        <div class="wins">
-          <span v-for="(t, i) in TEAMS" :key="t.name">
-            <span class="chip" :style="{ background: t.color }"></span>{{ t.name }} {{ wins[i] }}
-          </span>
-        </div>
+        <h2>Match #{{ battle.seed }}</h2>
         <p class="muted small">
-          Match #{{ battle.seed }} (open this URL to watch the same match again)
+          Open this URL to watch the same match again.
           <button class="link" @click="skip">Next match</button>
         </p>
       </section>

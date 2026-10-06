@@ -108,6 +108,30 @@ describe('本拠地', () => {
     expect(core.eliminatedAt).not.toBeNull();
   });
 
+  it('侵略されていないときの砲台は、中央方向を中心に首を振る', () => {
+    const battle = new Battle({ seed: 3, gimmicks: false });
+    const core = battle.cores[0]!;
+    for (let i = 0; i < 30; i++) {
+      advance(battle, 0.1);
+      expect(core.defending).toBe(false);
+      expect(Math.abs(core.aim - core.baseAim)).toBeLessThanOrEqual(0.75 + 1e-9);
+    }
+  });
+
+  it('侵略されて耐久が減っている間は、砲台が侵略された部分の方向を狙う', () => {
+    const battle = new Battle({ seed: 3, gimmicks: false });
+    const core = battle.cores[0]!;
+    // 黄の本拠地 (50, 50) から見て右上 (中央方向から約 -50〜-68 度) を青に侵略させる
+    paintRect(battle, 1, 110, 25, 140, 45);
+    advance(battle, 1.5);
+    expect(core.defending).toBe(true);
+    expect(core.hp).toBeLessThan(CORE_MAX_HP);
+    // 通常の首振りの範囲 (±0.75 ラジアン) の外、侵略された側を向いている
+    const relative = Math.atan2(Math.sin(core.aim - core.baseAim), Math.cos(core.aim - core.baseAim));
+    expect(relative).toBeLessThan(-0.75);
+    expect(relative).toBeGreaterThan(-1.4);
+  });
+
   it('最後の 1 色になったら勝利で試合が終わる', () => {
     const battle = quietBattle();
     for (const team of [1, 2, 3] as const) paintRect(battle, 0, ...cornerRect(team));

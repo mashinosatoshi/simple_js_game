@@ -52,6 +52,12 @@ const FIRE_FACTOR_MIN = 0.7;
 const FIRE_FACTOR_MAX = 1.3;
 /** 砲台が首を振る角度 (中央方向から左右に) */
 const AIM_SWEEP = 0.75;
+/** 砲台が回転できる速さ (ラジアン/秒)。狙いを切り替えたときに砲身が一瞬で向きを変えないようにする */
+const CANNON_TURN_SPEED = 2.5;
+/** 侵略された部分を狙うとき、その範囲の外側へ余分に振る角度 */
+const DEFENSE_AIM_MARGIN = 0.08;
+/** 侵略された部分を狙うときの首振りの速さ (通常時の何倍か) */
+const DEFENSE_SWEEP_SPEEDUP = 2;
 /** 陣地のマスに当たって跳ね返るときのぶれ (ラジアン)。同じ軌道を繰り返さないようにする */
 const BOUNCE_JITTER = 0.3;
 const RUSH_SECONDS = 5;
@@ -131,6 +137,11 @@ export interface Core {
   baseAim: number;
   aimPhase: number;
   aimSpeed: number;
+  /** 本拠地の周りを侵略されて耐久が減っている間は true。砲台は侵略された部分を狙う */
+  defending: boolean;
+  /** 侵略された部分がある方向の範囲 (baseAim からの相対角度) */
+  defenseMin: number;
+  defenseMax: number;
   fireCooldown: number;
   rushUntil: number;
   shieldUntil: number;
@@ -206,6 +217,17 @@ function initialOwner(cx: number, cy: number): TeamId {
   return ((cy < GRID_SIZE / 2 ? 0 : 2) + (cx < GRID_SIZE / 2 ? 0 : 1)) as TeamId;
 }
 
+/** 角度を -π〜π に収める */
+function normalizeAngle(angle: number): number {
+  return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+/** current から target へ、最大 maxStep だけ近い向きに回す */
+function turnToward(current: number, target: number, maxStep: number): number {
+  const diff = normalizeAngle(target - current);
+  return Math.abs(diff) <= maxStep ? target : current + Math.sign(diff) * maxStep;
+}
+
 function reflect(ball: Ball, nx: number, ny: number): boolean {
   const vn = ball.vx * nx + ball.vy * ny;
   if (vn >= 0) return false;
@@ -277,6 +299,9 @@ export class Battle {
         baseAim,
         aimPhase: this.random() * Math.PI * 2,
         aimSpeed: 0.6 + this.random() * 0.6,
+        defending: false,
+        defenseMin: 0,
+        defenseMax: 0,
         fireCooldown: this.random() * BASE_FIRE_INTERVAL,
         rushUntil: -Infinity,
         shieldUntil: -Infinity,
@@ -323,6 +348,7 @@ export class Battle {
 
   /** dt 秒ぶん試合を進める */
   update(dt: number): void {
+    if (this.finished) return;
     this.accumulator += Math.min(Math.max(dt, 0), MAX_UPDATE_SECONDS);
     while (this.accumulator >= STEP_SECONDS && !this.finished) {
       this.accumulator -= STEP_SECONDS;
@@ -404,7 +430,16 @@ export class Battle {
 
   private updateCore(core: Core): void {
     core.aimPhase += core.aimSpeed * STEP_SECONDS;
-    core.aim = core.baseAim + Math.sin(core.aimPhase) * AIM_SWEEP;
+    let target: number;
+    if (core.defending) {
+      // 侵略された部分がある方向の範囲を左右に振りながら撃ち、塗り返す
+      const middle = (core.defenseMin + core.defenseMax) / 2;
+      const half = (core.defenseMax - core.defenseMin) / 2 + DEFENSE_AIM_MARGIN;
+      target = core.baseAim + middle + Math.sin(core.aimPhase * DEFENSE_SWEEP_SPEEDUP) * half;
+    } else {
+      target = core.baseAim + Math.sin(core.aimPhase) * AIM_SWEEP;
+    }
+    core.aim = turnToward(core.aim, target, CANNON_TURN_SPEED * STEP_SECONDS);
     core.fireCooldown -= STEP_SECONDS;
     if (core.fireCooldown > 0) return;
     this.fire(core);
@@ -508,20 +543,33 @@ export class Battle {
     for (const core of this.cores) {
       if (!core.alive) continue;
       const counts = [0, 0, 0, 0];
+      let minAngle = Infinity;
+      let maxAngle = -Infinity;
       const minCx = Math.max(0, Math.floor((core.x - radius) / CELL_SIZE));
       const maxCx = Math.min(GRID_SIZE - 1, Math.floor((core.x + radius) / CELL_SIZE));
       const minCy = Math.max(0, Math.floor((core.y - radius) / CELL_SIZE));
       const maxCy = Math.min(GRID_SIZE - 1, Math.floor((core.y + radius) / CELL_SIZE));
       for (let cy = minCy; cy <= maxCy; cy++) {
         for (let cx = minCx; cx <= maxCx; cx++) {
-          if (Math.hypot((cx + 0.5) * CELL_SIZE - core.x, (cy + 0.5) * CELL_SIZE - core.y) > radius) continue;
+          const dx = (cx + 0.5) * CELL_SIZE - core.x;
+          const dy = (cy + 0.5) * CELL_SIZE - core.y;
+          if (Math.hypot(dx, dy) > radius) continue;
           const owner = this.owner[cellIndex(cx, cy)]!;
-          if (owner !== NEUTRAL && owner !== core.team) counts[owner]!++;
+          if (owner === NEUTRAL || owner === core.team) continue;
+          counts[owner]!++;
+          // 侵略された部分がどの方向にあるか (砲台の狙いに使う)
+          const angle = normalizeAngle(Math.atan2(dy, dx) - core.baseAim);
+          minAngle = Math.min(minAngle, angle);
+          maxAngle = Math.max(maxAngle, angle);
         }
       }
       core.zoneEnemyCells = counts.reduce((a, b) => a + b, 0);
       core.zoneDamageRate = 0;
-      if (core.zoneEnemyCells === 0 || this.time < core.shieldUntil) continue;
+      // 耐久が減っていない (侵略されていない・シールド中) ときは、砲台は通常どおり首を振る
+      core.defending = core.zoneEnemyCells > 0 && this.time >= core.shieldUntil;
+      core.defenseMin = minAngle;
+      core.defenseMax = maxAngle;
+      if (!core.defending) continue;
       const attacker = counts.indexOf(Math.max(...counts)) as TeamId;
       core.zoneDamageRate = core.zoneEnemyCells * POWER_PER_CELL * ZONE_DAMAGE_PER_CELL;
       const damage = core.zoneDamageRate * ZONE_CHECK_INTERVAL;

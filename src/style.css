@@ -412,25 +412,13 @@ button.link {
   margin-right: 4px;
 }
 
-.wins {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  font-variant-numeric: tabular-nums;
-}
-
-.wins .chip {
-  margin-top: 0;
-  vertical-align: -2px;
-}
-
 .muted {
   color: var(--muted);
 }
 
 .small {
   font-size: 0.8rem;
-  margin: 8px 0 0;
+  margin: 0;
 }
 
 summary {

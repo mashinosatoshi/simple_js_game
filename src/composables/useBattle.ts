@@ -11,11 +11,8 @@ import {
 } from '../game/battle';
 import { randomSeed } from '../game/rng';
 
-/** 決着してから次の試合が始まるまでの秒数 */
-const NEXT_MATCH_DELAY = 8;
 /** 順位の並べ替えの最短間隔。陣地の割合が近い色同士が毎フレーム入れ替わって表示が震えないようにする */
 const SORT_INTERVAL_MS = 1000;
-const WINS_STORAGE_KEY = 'simple-js-game:wins';
 
 export interface TeamScore {
   team: TeamId;
@@ -42,7 +39,7 @@ function compareScores(a: TeamScore, b: TeamScore): number {
 }
 
 /**
- * 試合 (Battle) を進め、画面に出す情報を毎フレーム取り出す。決着したら少し待って次の試合を自動で始める。
+ * 試合 (Battle) を進め、画面に出す情報を毎フレーム取り出す。決着したら止まり、次の試合はボタンで始める。
  * 試合のシードは URL の ?seed= に入れるので、URL を開き直すと同じ試合をもう一度見られる
  */
 export function useBattle() {
@@ -51,8 +48,6 @@ export function useBattle() {
   const events = shallowRef<BattleEvent[]>([]);
   const elapsed = ref(0);
   const speed = ref(1);
-  const nextMatchIn = ref<number | null>(null);
-  const wins = ref(loadWins());
 
   let order: TeamId[] = [...TEAM_IDS];
   let lastSortAt = -Infinity;
@@ -60,7 +55,6 @@ export function useBattle() {
 
   function startMatch(seed: number) {
     battle.value = markRaw(new Battle({ seed }));
-    nextMatchIn.value = null;
     lastSortAt = -Infinity;
     writeSeedToUrl(seed);
     refresh();
@@ -73,7 +67,7 @@ export function useBattle() {
     const all = TEAM_IDS.map((team): TeamScore => {
       const core = b.cores[team]!;
       const status: string[] = [];
-      if (core.alive) {
+      if (core.alive && !b.finished) {
         if (b.time < core.shieldUntil) status.push('Shielded');
         if (b.time < core.rushUntil) status.push('Rapid fire');
         if (core.pendingWeapon) status.push(`Next shot: ${ITEM_LABELS[core.pendingWeapon]}`);
@@ -112,29 +106,10 @@ export function useBattle() {
     lastFrame = now;
     const b = battle.value;
 
-    if (!b.finished) {
-      b.update(dt * speed.value);
-      if (b.finished) {
-        if (b.winner !== null) recordWin(b.winner);
-        nextMatchIn.value = NEXT_MATCH_DELAY;
-      }
-    } else if (nextMatchIn.value !== null) {
-      nextMatchIn.value -= dt;
-      if (nextMatchIn.value <= 0) startMatch(randomSeed());
-    }
+    // 決着後は update しても何も起きない (Battle 側で止まる)
+    b.update(dt * speed.value);
     refresh();
     frameId = requestAnimationFrame(frame);
-  }
-
-  function recordWin(team: TeamId) {
-    const next = [...wins.value];
-    next[team]!++;
-    wins.value = next;
-    try {
-      localStorage.setItem(WINS_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // 保存できない環境では、このページを開いている間だけ数える
-    }
   }
 
   onMounted(() => {
@@ -152,8 +127,6 @@ export function useBattle() {
     events,
     elapsed,
     speed,
-    nextMatchIn,
-    wins,
     /** 今の試合を飛ばして次の試合を始める */
     skip: () => startMatch(randomSeed()),
     /** 今の試合を最初から見直す */
@@ -170,16 +143,4 @@ function writeSeedToUrl(seed: number) {
   const url = new URL(location.href);
   url.searchParams.set('seed', String(seed));
   history.replaceState(null, '', url);
-}
-
-function loadWins(): number[] {
-  try {
-    const data: unknown = JSON.parse(localStorage.getItem(WINS_STORAGE_KEY) ?? 'null');
-    if (Array.isArray(data) && data.length === 4 && data.every((n) => Number.isInteger(n) && n >= 0)) {
-      return data as number[];
-    }
-  } catch {
-    // 壊れたデータは無視して 0 から数える
-  }
-  return [0, 0, 0, 0];
 }
