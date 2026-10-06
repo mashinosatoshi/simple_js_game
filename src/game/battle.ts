@@ -29,8 +29,6 @@ export const CORE_RADIUS = 24;
 /** 本拠地の周りのこの範囲を敵に塗られると、塗られたマスの数に応じて本拠地が削られる (試合開始時の半径) */
 export const CORE_ZONE_RADIUS = 100;
 export const CORE_MAX_HP = 100;
-/** 中央の大当たり穴。入るとその色の砲台が一定時間連射する */
-export const RUSH_HOLE = { x: FIELD_SIZE / 2, y: FIELD_SIZE / 2, radius: 14 } as const;
 export const GATE_RADIUS = 24;
 export const ITEM_RADIUS = 13;
 
@@ -60,10 +58,6 @@ const DEFENSE_AIM_MARGIN = 0.08;
 const DEFENSE_SWEEP_SPEEDUP = 2;
 /** 陣地のマスに当たって跳ね返るときのぶれ (ラジアン)。同じ軌道を繰り返さないようにする */
 const BOUNCE_JITTER = 0.3;
-const RUSH_SECONDS = 5;
-/** 大当たり穴が一度当たってから、次に当たるようになるまでの秒数 */
-const RUSH_COOLDOWN = 12;
-const RUSH_FIRE_FACTOR = 0.2;
 const SHIELD_SECONDS = 10;
 const ITEM_SPAWN_INTERVAL = 5;
 const MAX_ITEMS = 3;
@@ -143,7 +137,6 @@ export interface Core {
   defenseMin: number;
   defenseMax: number;
   fireCooldown: number;
-  rushUntil: number;
   shieldUntil: number;
   /** アイテムで手に入れた、次の 1 発で使う武器 */
   pendingWeapon: Weapon | null;
@@ -167,12 +160,6 @@ export interface Gate {
   y: number;
   vx: number;
   vy: number;
-}
-
-export interface Bumper {
-  x: number;
-  y: number;
-  radius: number;
 }
 
 export interface Item {
@@ -200,7 +187,7 @@ export interface BattleOptions {
   seed: number;
   /** false にすると砲台が撃たない (テスト用) */
   autoFire?: boolean;
-  /** false にするとゲート・アイテム・バンパー・大当たり穴を置かない (テスト用) */
+  /** false にするとゲートとアイテムを置かない (テスト用) */
   gimmicks?: boolean;
 }
 
@@ -243,7 +230,6 @@ export class Battle {
   /** 各色が持っているマスの数 */
   readonly cellCounts = [0, 0, 0, 0];
   readonly cores: Core[];
-  readonly bumpers: Bumper[];
   readonly gates: Gate[];
   balls: Ball[] = [];
   items: Item[] = [];
@@ -262,7 +248,6 @@ export class Battle {
   private itemTimer = ITEM_SPAWN_INTERVAL;
   private zoneTimer = ZONE_CHECK_INTERVAL;
   private nextEventId = 1;
-  private rushReadyAt = 0;
   private suddenDeathAnnounced = false;
 
   constructor(options: BattleOptions) {
@@ -303,7 +288,6 @@ export class Battle {
         defenseMin: 0,
         defenseMax: 0,
         fireCooldown: this.random() * BASE_FIRE_INTERVAL,
-        rushUntil: -Infinity,
         shieldUntil: -Infinity,
         pendingWeapon: null,
         zoneEnemyCells: 0,
@@ -314,21 +298,6 @@ export class Battle {
         eliminatedAt: null,
       };
     });
-
-    // バンパーは公平になるよう上下左右対称に置く
-    const c = FIELD_SIZE / 2;
-    this.bumpers = this.gimmicks
-      ? [
-          [c - 120, c],
-          [c + 120, c],
-          [c, c - 120],
-          [c, c + 120],
-          [c - 70, c - 70],
-          [c + 70, c - 70],
-          [c - 70, c + 70],
-          [c + 70, c + 70],
-        ].map(([x, y]) => ({ x: x!, y: y!, radius: 9 }))
-      : [];
 
     const gateKinds: GateKind[] = ['x2', 'x2', 'x4', 'split'];
     this.gates = this.gimmicks
@@ -390,11 +359,6 @@ export class Battle {
     return this.time >= ZONE_GROW_START;
   }
 
-  /** 大当たり穴が開いているか (当たった直後はしばらく閉じる) */
-  rushReady(): boolean {
-    return this.time >= this.rushReadyAt;
-  }
-
   aliveTeams(): TeamId[] {
     return this.cores.filter((c) => c.alive).map((c) => c.team);
   }
@@ -450,8 +414,7 @@ export class Battle {
   private fireInterval(core: Core): number {
     const share = this.cellCounts[core.team]! / CELL_COUNT;
     const factor = Math.min(Math.max(FIRE_FACTOR_OFFSET + FIRE_FACTOR_SLOPE * share, FIRE_FACTOR_MIN), FIRE_FACTOR_MAX);
-    const rush = this.time < core.rushUntil ? RUSH_FIRE_FACTOR : 1;
-    return BASE_FIRE_INTERVAL * factor * rush;
+    return BASE_FIRE_INTERVAL * factor;
   }
 
   private fire(core: Core): void {
@@ -653,14 +616,11 @@ export class Battle {
     // 壁に垂直に当たると同じ直線を往復し続けるので、少し向きをぶらす
     if (hitWall) this.rotate(ball, (this.random() - 0.5) * BOUNCE_JITTER);
 
-    for (const bumper of this.bumpers) this.bounceOffCircle(ball, r, bumper.x, bumper.y, bumper.radius);
-
     this.paintByBall(ball, r);
     if (ball.power <= 0) return;
 
     this.touchGates(ball);
     this.touchItems(ball, r);
-    this.touchRushHole(ball);
     this.touchCores(ball, r);
     if (this.time - ball.bornAt > BALL_MAX_LIFETIME) ball.power = 0;
   }
@@ -786,26 +746,6 @@ export class Battle {
         big: false,
       });
       return false;
-    });
-  }
-
-  private touchRushHole(ball: Ball): void {
-    if (!this.gimmicks || !this.rushReady()) return;
-    if (Math.hypot(ball.x - RUSH_HOLE.x, ball.y - RUSH_HOLE.y) > RUSH_HOLE.radius) return;
-    ball.power = 0;
-    this.rushReadyAt = this.time + RUSH_COOLDOWN;
-    const core = this.cores[ball.team]!;
-    core.rushUntil = this.time + RUSH_SECONDS;
-    core.fireCooldown = 0;
-    this.log(ball.team, `${TEAMS[ball.team]!.name} hit RUSH! Rapid fire for ${RUSH_SECONDS}s`);
-    this.effects.push({
-      kind: 'text',
-      team: ball.team,
-      time: this.time,
-      x: RUSH_HOLE.x,
-      y: RUSH_HOLE.y - 24,
-      text: 'RUSH!',
-      big: true,
     });
   }
 

@@ -69,7 +69,6 @@ export function useBattle() {
       const status: string[] = [];
       if (core.alive && !b.finished) {
         if (b.time < core.shieldUntil) status.push('Shielded');
-        if (b.time < core.rushUntil) status.push('Rapid fire');
         if (core.pendingWeapon) status.push(`Next shot: ${ITEM_LABELS[core.pendingWeapon]}`);
         if (core.zoneDamageRate > 0) status.push(`Base losing ${core.zoneDamageRate.toFixed(1)} HP/s`);
       }

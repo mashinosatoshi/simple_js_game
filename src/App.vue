@@ -115,7 +115,6 @@ const SPEEDS = [1, 2, 4];
           <li>When balls of different colors collide, both lose power equal to the smaller ball's power.</li>
           <li><strong>×2 / ×4 gates</strong> multiply a ball's power and size. A <strong>Split</strong> gate splits a ball into three. Each ball can use only one gate.</li>
           <li>Items power up that color's next shot: <strong>L</strong> Laser, <strong>B</strong> Bomb, <strong>G</strong> Giant ball, <strong>W</strong> Wide (5-way) shot. <strong>S</strong> Shield protects the base for a while.</li>
-          <li>A ball that drops into the <strong>RUSH</strong> hole in the center gives its color 5 seconds of rapid fire. The hole then closes for a while.</li>
           <li>
             <strong>How a base loses HP:</strong> every base has 100 HP and a dotted circle around it. Any enemy color inside that circle
             (flashing red) drains the base every second — the more enemy territory inside, the faster. The drain stops when the base is

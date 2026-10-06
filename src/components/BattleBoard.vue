@@ -13,7 +13,6 @@ import {
   GRID_SIZE,
   ITEM_RADIUS,
   NEUTRAL,
-  RUSH_HOLE,
   TEAMS,
   type Battle,
   type ItemKind,
@@ -140,26 +139,6 @@ function text(value: string, x: number, y: number, size: number, fill: string, s
 
 function drawGimmicks(b: Battle) {
   const c = ctx!;
-  // 大当たり穴
-  circle(RUSH_HOLE.x, RUSH_HOLE.y, RUSH_HOLE.radius + 4);
-  c.fillStyle = 'rgba(20, 20, 24, 0.85)';
-  c.fill();
-  c.lineWidth = 3;
-  // 開いている間は虹色に光らせ、閉じている間は暗くする
-  const ready = b.rushReady();
-  c.strokeStyle = ready ? `hsl(${(b.time * 120) % 360}, 90%, 65%)` : 'rgba(255, 255, 255, 0.25)';
-  c.stroke();
-  text('RUSH', RUSH_HOLE.x, RUSH_HOLE.y, 8, ready ? '#fff' : 'rgba(255, 255, 255, 0.35)');
-
-  for (const bumper of b.bumpers) {
-    circle(bumper.x, bumper.y, bumper.radius);
-    c.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    c.fill();
-    c.lineWidth = 2;
-    c.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-    c.stroke();
-  }
-
   for (const gate of b.gates) {
     circle(gate.x, gate.y, GATE_RADIUS);
     c.fillStyle = 'rgba(255, 255, 255, 0.18)';
@@ -250,7 +229,7 @@ function drawCores(b: Battle) {
     c.fillStyle = coreColors[core.team]!;
     c.fill();
     c.lineWidth = 3;
-    c.strokeStyle = b.time < core.rushUntil ? `hsl(${(b.time * 300) % 360}, 90%, 65%)` : '#fff';
+    c.strokeStyle = '#fff';
     c.stroke();
 
     // 耐久の残りを外周のリングで示す
