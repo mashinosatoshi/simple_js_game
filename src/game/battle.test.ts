@@ -6,7 +6,6 @@ import {
   CORE_MAX_HP,
   GRID_SIZE,
   NEUTRAL,
-  TIME_LIMIT,
   type TeamId,
 } from './battle';
 
@@ -99,7 +98,7 @@ describe('本拠地', () => {
     expect(countCells(battle, 0)).toBe(0);
     expect(battle.cellCounts[0]).toBe(0);
     expect(battle.owner.filter((o) => o === NEUTRAL).length).toBeGreaterThan(0);
-    expect(battle.events.at(-1)?.text).toContain('脱落');
+    expect(battle.events.at(-1)?.text).toContain('eliminated');
   });
 
   it('最後の 1 色になったら勝利で試合が終わる', () => {
@@ -130,11 +129,12 @@ describe('試合全体', () => {
     expect(a.cores.map((c) => c.hp)).toEqual(b.cores.map((c) => c.hp));
   });
 
-  it('制限時間までに必ず決着がつく', () => {
+  it('制限時間はないが、サドンデスで本拠地の周りの範囲が広がり、数分で決着がつく', () => {
     const battle = new Battle({ seed: 7 });
-    while (!battle.finished) advance(battle, 0.25);
-    expect(battle.time).toBeLessThanOrEqual(TIME_LIMIT + 0.01);
+    while (!battle.finished && battle.time < 600) advance(battle, 0.25);
+    expect(battle.finished).toBe(true);
     expect(battle.winner).not.toBeNull();
+    expect(battle.aliveTeams()).toEqual([battle.winner]);
     // マスの数の集計が実際の盤面と一致している
     for (const team of [0, 1, 2, 3] as const) expect(battle.cellCounts[team]).toBe(countCells(battle, team));
   });

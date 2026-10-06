@@ -5,7 +5,6 @@ import {
   CELL_COUNT,
   CORE_RADIUS,
   CORE_MAX_HP,
-  CORE_ZONE_RADIUS,
   FIELD_SIZE,
   GATE_LABELS,
   GATE_RADIUS,
@@ -23,7 +22,7 @@ const props = defineProps<{ battle: Battle }>();
 
 const EFFECT_SECONDS = 1.2;
 const NEUTRAL_RGB: Rgb = [138, 143, 152];
-const ITEM_ICONS: Record<ItemKind, string> = { laser: 'レ', bomb: 'ボ', shield: '盾', giant: '巨', spread: '拡' };
+const ITEM_ICONS: Record<ItemKind, string> = { laser: 'L', bomb: 'B', shield: 'S', giant: 'G', spread: 'W' };
 
 type Rgb = [number, number, number];
 const teamRgb = TEAMS.map((t) => hexToRgb(t.color));
@@ -149,17 +148,20 @@ function drawGimmicks(b: Battle) {
 
 function drawCores(b: Battle) {
   const c = ctx!;
+  const zoneRadius = b.coreZoneRadius();
   for (const core of b.cores) {
-    // 本拠地の周りの「塗られると削られる」範囲
-    circle(core.x, core.y, CORE_ZONE_RADIUS);
-    c.lineWidth = 2;
-    c.setLineDash([4, 6]);
-    const underAttack = core.alive && core.zoneEnemyCells > 0;
-    c.strokeStyle = underAttack
-      ? `rgba(255, 60, 60, ${0.5 + 0.4 * Math.sin(b.time * 10)})`
-      : 'rgba(255, 255, 255, 0.35)';
-    c.stroke();
-    c.setLineDash([]);
+    // 本拠地の周りの「塗られると削られる」範囲。サドンデス中は広がっていく
+    if (core.alive) {
+      circle(core.x, core.y, zoneRadius);
+      c.lineWidth = b.suddenDeath() ? 3 : 2;
+      c.setLineDash([4, 6]);
+      c.strokeStyle =
+        core.zoneEnemyCells > 0
+          ? `rgba(255, 60, 60, ${0.5 + 0.4 * Math.sin(b.time * 10)})`
+          : 'rgba(255, 255, 255, 0.35)';
+      c.stroke();
+      c.setLineDash([]);
+    }
 
     if (!core.alive) {
       circle(core.x, core.y, CORE_RADIUS);
@@ -280,7 +282,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <canvas ref="canvas" class="board" role="img" aria-label="4 色の陣取りバトルの戦場"></canvas>
+  <canvas ref="canvas" class="board" role="img" aria-label="Battlefield of the four-color territory war"></canvas>
 </template>
 
 <style scoped>

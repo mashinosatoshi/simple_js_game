@@ -6,7 +6,6 @@ import {
   ITEM_LABELS,
   TEAM_IDS,
   TEAMS,
-  TIME_LIMIT,
   type BattleEvent,
   type TeamId,
 } from '../game/battle';
@@ -37,7 +36,7 @@ export function useBattle() {
   const battle = shallowRef(markRaw(new Battle({ seed: seedFromUrl() ?? randomSeed() })));
   const scores = shallowRef<TeamScore[]>([]);
   const events = shallowRef<BattleEvent[]>([]);
-  const remaining = ref(TIME_LIMIT);
+  const elapsed = ref(0);
   const speed = ref(1);
   const nextMatchIn = ref<number | null>(null);
   const wins = ref(loadWins());
@@ -51,16 +50,16 @@ export function useBattle() {
 
   function refresh() {
     const b = battle.value;
-    remaining.value = Math.max(0, TIME_LIMIT - b.time);
+    elapsed.value = b.time;
     events.value = b.events.slice(-6).reverse();
     scores.value = TEAM_IDS.map((team) => {
       const core = b.cores[team]!;
       const status: string[] = [];
       if (core.alive) {
-        if (b.time < core.shieldUntil) status.push('シールド中');
-        if (b.time < core.rushUntil) status.push('連射中');
-        if (core.pendingWeapon) status.push(`次弾: ${ITEM_LABELS[core.pendingWeapon]}`);
-        if (core.zoneEnemyCells > 0) status.push('本拠地に攻撃を受けている');
+        if (b.time < core.shieldUntil) status.push('Shielded');
+        if (b.time < core.rushUntil) status.push('Rapid fire');
+        if (core.pendingWeapon) status.push(`Next shot: ${ITEM_LABELS[core.pendingWeapon]}`);
+        if (core.zoneEnemyCells > 0) status.push('Base under attack');
       }
       return {
         team,
@@ -121,7 +120,7 @@ export function useBattle() {
     battle,
     scores,
     events,
-    remaining,
+    elapsed,
     speed,
     nextMatchIn,
     wins,

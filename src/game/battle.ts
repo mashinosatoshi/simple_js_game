@@ -14,18 +14,16 @@ export const NEUTRAL = -1;
 export type TeamId = 0 | 1 | 2 | 3;
 export const TEAM_IDS: readonly TeamId[] = [0, 1, 2, 3];
 export const TEAMS: readonly { name: string; color: string }[] = [
-  { name: '黄', color: '#f2b705' },
-  { name: '青', color: '#2f7de1' },
-  { name: '赤', color: '#e5383b' },
-  { name: '緑', color: '#2a9d4b' },
+  { name: 'Yellow', color: '#f2b705' },
+  { name: 'Blue', color: '#2f7de1' },
+  { name: 'Red', color: '#e5383b' },
+  { name: 'Green', color: '#2a9d4b' },
 ];
 
 export const CORE_RADIUS = 24;
-/** 本拠地の周りのこの範囲を敵に塗られると、塗られたマスの数に応じて本拠地が削られる */
+/** 本拠地の周りのこの範囲を敵に塗られると、塗られたマスの数に応じて本拠地が削られる (試合開始時の半径) */
 export const CORE_ZONE_RADIUS = 100;
 export const CORE_MAX_HP = 100;
-/** 制限時間 (秒)。過ぎたら陣地が一番広い色の勝ち */
-export const TIME_LIMIT = 180;
 /** 中央の大当たり穴。入るとその色の砲台が一定時間連射する */
 export const RUSH_HOLE = { x: FIELD_SIZE / 2, y: FIELD_SIZE / 2, radius: 14 } as const;
 export const GATE_RADIUS = 24;
@@ -71,6 +69,13 @@ const BOMB_RADIUS = 60;
 /** 本拠地の周りの敵のマス 1 つにつき、1 秒あたりに受けるダメージ */
 const ZONE_DAMAGE_PER_CELL = 0.3;
 const ZONE_CHECK_INTERVAL = 0.5;
+/**
+ * 制限時間がない代わりに、この秒数を過ぎると本拠地の周りの範囲が広がり始める (サドンデス)。
+ * 範囲が広がるほど敵のマスが入りやすくなり、いずれ必ず決着がつく
+ */
+const ZONE_GROW_START = 90;
+/** 範囲が広がる速さ (1 秒あたりの半径の増加) */
+const ZONE_GROW_SPEED = 1.5;
 const EFFECT_SECONDS = 1.2;
 const MAX_EVENTS = 30;
 
@@ -78,13 +83,13 @@ export type GateKind = 'x2' | 'x4' | 'split';
 export type ItemKind = 'laser' | 'bomb' | 'shield' | 'giant' | 'spread';
 export type Weapon = Exclude<ItemKind, 'shield'>;
 
-export const GATE_LABELS: Record<GateKind, string> = { x2: '×2', x4: '×4', split: '分裂' };
+export const GATE_LABELS: Record<GateKind, string> = { x2: '×2', x4: '×4', split: 'Split' };
 export const ITEM_LABELS: Record<ItemKind, string> = {
-  laser: 'レーザー',
-  bomb: 'ボム',
-  shield: 'シールド',
-  giant: '巨大弾',
-  spread: '拡散',
+  laser: 'Laser',
+  bomb: 'Bomb',
+  shield: 'Shield',
+  giant: 'Giant',
+  spread: 'Wide',
 };
 const ITEM_KINDS = Object.keys(ITEM_LABELS) as ItemKind[];
 
@@ -119,8 +124,6 @@ export interface Core {
   shieldUntil: number;
   /** アイテムで手に入れた、次の 1 発で使う武器 */
   pendingWeapon: Weapon | null;
-  /** 本拠地の周りのマス (cellIndex) */
-  zoneCells: number[];
   /** 本拠地の周りにある敵のマスの数 (ZONE_CHECK_INTERVAL ごとに更新) */
   zoneEnemyCells: number;
 }
@@ -180,17 +183,6 @@ function initialOwner(cx: number, cy: number): TeamId {
   return ((cy < GRID_SIZE / 2 ? 0 : 2) + (cx < GRID_SIZE / 2 ? 0 : 1)) as TeamId;
 }
 
-/** 中心 (x, y) から radius 以内に中心があるマスの一覧 */
-function cellsWithin(x: number, y: number, radius: number): number[] {
-  const cells: number[] = [];
-  for (let cy = 0; cy < GRID_SIZE; cy++) {
-    for (let cx = 0; cx < GRID_SIZE; cx++) {
-      if (Math.hypot((cx + 0.5) * CELL_SIZE - x, (cy + 0.5) * CELL_SIZE - y) <= radius) cells.push(cellIndex(cx, cy));
-    }
-  }
-  return cells;
-}
-
 function reflect(ball: Ball, nx: number, ny: number): boolean {
   const vn = ball.vx * nx + ball.vy * ny;
   if (vn >= 0) return false;
@@ -226,6 +218,7 @@ export class Battle {
   private zoneTimer = ZONE_CHECK_INTERVAL;
   private nextEventId = 1;
   private rushReadyAt = 0;
+  private suddenDeathAnnounced = false;
 
   constructor(options: BattleOptions) {
     this.seed = options.seed;
@@ -265,7 +258,6 @@ export class Battle {
         rushUntil: -Infinity,
         shieldUntil: -Infinity,
         pendingWeapon: null,
-        zoneCells: cellsWithin(x, y, CORE_ZONE_RADIUS),
         zoneEnemyCells: 0,
       };
     });
@@ -332,6 +324,16 @@ export class Battle {
   /** 現在の通常弾のパワー。時間とともに増える */
   basePower(): number {
     return Math.round(BASE_POWER * (1 + this.time / POWER_RAMP_SECONDS));
+  }
+
+  /** 本拠地の周りの「塗られると削られる」範囲の半径。サドンデスに入ると時間とともに広がる */
+  coreZoneRadius(): number {
+    return CORE_ZONE_RADIUS + Math.max(0, this.time - ZONE_GROW_START) * ZONE_GROW_SPEED;
+  }
+
+  /** サドンデス (本拠地の周りの範囲が広がっている状態) か */
+  suddenDeath(): boolean {
+    return this.time >= ZONE_GROW_START;
   }
 
   /** 大当たり穴が開いているか (当たった直後はしばらく閉じる) */
@@ -468,12 +470,24 @@ export class Battle {
     this.zoneTimer -= STEP_SECONDS;
     if (this.zoneTimer > 0) return;
     this.zoneTimer += ZONE_CHECK_INTERVAL;
+    if (this.suddenDeath() && !this.suddenDeathAnnounced) {
+      this.suddenDeathAnnounced = true;
+      this.log(null, 'Sudden death! Danger zones are expanding');
+    }
+    const radius = this.coreZoneRadius();
     for (const core of this.cores) {
       if (!core.alive) continue;
       const counts = [0, 0, 0, 0];
-      for (const index of core.zoneCells) {
-        const owner = this.owner[index]!;
-        if (owner !== NEUTRAL && owner !== core.team) counts[owner]!++;
+      const minCx = Math.max(0, Math.floor((core.x - radius) / CELL_SIZE));
+      const maxCx = Math.min(GRID_SIZE - 1, Math.floor((core.x + radius) / CELL_SIZE));
+      const minCy = Math.max(0, Math.floor((core.y - radius) / CELL_SIZE));
+      const maxCy = Math.min(GRID_SIZE - 1, Math.floor((core.y + radius) / CELL_SIZE));
+      for (let cy = minCy; cy <= maxCy; cy++) {
+        for (let cx = minCx; cx <= maxCx; cx++) {
+          if (Math.hypot((cx + 0.5) * CELL_SIZE - core.x, (cy + 0.5) * CELL_SIZE - core.y) > radius) continue;
+          const owner = this.owner[cellIndex(cx, cy)]!;
+          if (owner !== NEUTRAL && owner !== core.team) counts[owner]!++;
+        }
       }
       core.zoneEnemyCells = counts.reduce((a, b) => a + b, 0);
       if (core.zoneEnemyCells === 0 || this.time < core.shieldUntil) continue;
@@ -507,7 +521,7 @@ export class Battle {
     for (const ball of [...this.balls, ...this.pending]) {
       if (ball.team === core.team) ball.power = 0;
     }
-    this.log(core.team, `${TEAMS[core.team]!.name}が脱落（${TEAMS[by]!.name}の攻撃）`);
+    this.log(core.team, `${TEAMS[core.team]!.name} eliminated by ${TEAMS[by]!.name}`);
     this.effects.push({ kind: 'explosion', team: by, time: this.time, x: core.x, y: core.y, radius: 80 });
   }
 
@@ -644,7 +658,7 @@ export class Battle {
         text: GATE_LABELS[gate.kind],
         big: gate.kind === 'x4' || big,
       });
-      if (big) this.log(ball.team, `${TEAMS[ball.team]!.name}の弾が${GATE_LABELS[gate.kind]}でパワー ${ball.power} に`);
+      if (big) this.log(ball.team, `${TEAMS[ball.team]!.name} hit ${GATE_LABELS[gate.kind]}: power ${ball.power}`);
       return;
     }
   }
@@ -658,7 +672,7 @@ export class Battle {
       } else {
         core.pendingWeapon = item.kind;
       }
-      this.log(ball.team, `${TEAMS[ball.team]!.name}が${ITEM_LABELS[item.kind]}を獲得`);
+      this.log(ball.team, `${TEAMS[ball.team]!.name} got ${ITEM_LABELS[item.kind]}`);
       this.effects.push({
         kind: 'text',
         team: ball.team,
@@ -680,7 +694,7 @@ export class Battle {
     const core = this.cores[ball.team]!;
     core.rushUntil = this.time + RUSH_SECONDS;
     core.fireCooldown = 0;
-    this.log(ball.team, `${TEAMS[ball.team]!.name}が大当たり！ ${RUSH_SECONDS} 秒間連射`);
+    this.log(ball.team, `${TEAMS[ball.team]!.name} hit RUSH! Rapid fire for ${RUSH_SECONDS}s`);
     this.effects.push({
       kind: 'text',
       team: ball.team,
@@ -767,27 +781,13 @@ export class Battle {
 
   // ---- 試合の進行 ----
 
+  /** 制限時間はなく、最後の 1 色になったら終わり */
   private checkEnd(): void {
     const alive = this.cores.filter((c) => c.alive);
-    if (alive.length <= 1) {
-      this.finish(alive[0]?.team ?? null, '最後まで生き残った');
-      return;
-    }
-    if (this.time >= TIME_LIMIT) {
-      const best = alive.reduce((a, b) =>
-        this.cellCounts[b.team]! > this.cellCounts[a.team]! ||
-        (this.cellCounts[b.team] === this.cellCounts[a.team] && b.hp > a.hp)
-          ? b
-          : a,
-      );
-      this.finish(best.team, '時間切れで陣地が最も広い');
-    }
-  }
-
-  private finish(winner: TeamId | null, reason: string): void {
+    if (alive.length > 1) return;
     this.finished = true;
-    this.winner = winner;
-    this.log(winner, winner === null ? '引き分け' : `${TEAMS[winner]!.name}の勝利（${reason}）`);
+    this.winner = alive[0]?.team ?? null;
+    this.log(this.winner, this.winner === null ? 'Draw' : `${TEAMS[this.winner]!.name} wins!`);
   }
 
   private log(team: TeamId | null, text: string): void {
