@@ -5,9 +5,14 @@
 import { createRandom, type Random } from './rng';
 
 export const FIELD_SIZE = 600;
-export const CELL_SIZE = 10;
+export const CELL_SIZE = 5;
 export const GRID_SIZE = FIELD_SIZE / CELL_SIZE;
 export const CELL_COUNT = GRID_SIZE * GRID_SIZE;
+/**
+ * 1 マス塗るのに使うパワー。パワー 1 で 10×10 の面積を塗れるようにしてあるので、
+ * マスの大きさを変えてもゲームバランスは変わらない
+ */
+export const POWER_PER_CELL = (CELL_SIZE * CELL_SIZE) / 100;
 /** どの色の陣地でもないマス (脱落した色の跡地) */
 export const NEUTRAL = -1;
 
@@ -63,10 +68,11 @@ const GIANT_MULTIPLIER = 4;
 const SPREAD_COUNT = 5;
 const SPREAD_ANGLE = 0.5;
 const LASER_WIDTH = 9;
-const LASER_CELLS = 80;
+/** レーザーが塗れる量 (パワー換算) */
+const LASER_POWER = 80;
 const LASER_CORE_DAMAGE_MULTIPLIER = 4;
 const BOMB_RADIUS = 60;
-/** 本拠地の周りの敵のマス 1 つにつき、1 秒あたりに受けるダメージ */
+/** 本拠地の周りの敵の陣地 (10×10 の面積) につき、1 秒あたりに受けるダメージ */
 const ZONE_DAMAGE_PER_CELL = 0.3;
 const ZONE_CHECK_INTERVAL = 0.5;
 /**
@@ -77,6 +83,7 @@ const ZONE_GROW_START = 90;
 /** 範囲が広がる速さ (1 秒あたりの半径の増加) */
 const ZONE_GROW_SPEED = 1.5;
 const EFFECT_SECONDS = 1.2;
+const BANNER_SECONDS = 2.5;
 const MAX_EVENTS = 30;
 
 export type GateKind = 'x2' | 'x4' | 'split';
@@ -126,6 +133,10 @@ export interface Core {
   pendingWeapon: Weapon | null;
   /** 本拠地の周りにある敵のマスの数 (ZONE_CHECK_INTERVAL ごとに更新) */
   zoneEnemyCells: number;
+  /** 最終順位 (1 が優勝)。決まるまでは null */
+  place: number | null;
+  /** 脱落した時刻 (秒) */
+  eliminatedAt: number | null;
 }
 
 export interface Gate {
@@ -153,7 +164,9 @@ export interface Item {
 export type Effect =
   | { kind: 'laser'; team: TeamId; time: number; x1: number; y1: number; x2: number; y2: number }
   | { kind: 'explosion'; team: TeamId; time: number; x: number; y: number; radius: number }
-  | { kind: 'text'; team: TeamId | null; time: number; x: number; y: number; text: string; big: boolean };
+  | { kind: 'text'; team: TeamId | null; time: number; x: number; y: number; text: string; big: boolean }
+  /** 戦場の中央に大きく出す知らせ (脱落など) */
+  | { kind: 'banner'; team: TeamId | null; time: number; text: string };
 
 export interface BattleEvent {
   id: number;
@@ -259,6 +272,8 @@ export class Battle {
         shieldUntil: -Infinity,
         pendingWeapon: null,
         zoneEnemyCells: 0,
+        place: null,
+        eliminatedAt: null,
       };
     });
 
@@ -367,7 +382,9 @@ export class Battle {
     this.balls.push(...this.pending);
     this.pending = [];
     this.checkEnd();
-    this.effects = this.effects.filter((e) => this.time - e.time < EFFECT_SECONDS);
+    this.effects = this.effects.filter(
+      (e) => this.time - e.time < (e.kind === 'banner' ? BANNER_SECONDS : EFFECT_SECONDS),
+    );
   }
 
   // ---- 砲台 ----
@@ -427,7 +444,7 @@ export class Battle {
     let y = core.y + dy * CORE_RADIUS;
     const x1 = x;
     const y1 = y;
-    let budget = LASER_CELLS;
+    let budget = LASER_POWER / POWER_PER_CELL;
     const hitCores = new Set<TeamId>();
     while (budget > 0 && x >= 0 && x <= FIELD_SIZE && y >= 0 && y <= FIELD_SIZE) {
       budget -= this.paintCircle(core.team, x, y, LASER_WIDTH, budget);
@@ -492,7 +509,8 @@ export class Battle {
       core.zoneEnemyCells = counts.reduce((a, b) => a + b, 0);
       if (core.zoneEnemyCells === 0 || this.time < core.shieldUntil) continue;
       const attacker = counts.indexOf(Math.max(...counts)) as TeamId;
-      core.hp = Math.max(0, core.hp - core.zoneEnemyCells * ZONE_DAMAGE_PER_CELL * ZONE_CHECK_INTERVAL);
+      const damage = core.zoneEnemyCells * POWER_PER_CELL * ZONE_DAMAGE_PER_CELL * ZONE_CHECK_INTERVAL;
+      core.hp = Math.max(0, core.hp - damage);
       if (core.hp <= 0) this.eliminate(core, attacker);
     }
   }
@@ -506,7 +524,7 @@ export class Battle {
       time: this.time,
       x: core.x,
       y: core.y - CORE_RADIUS - 8,
-      text: `-${amount}`,
+      text: `-${Math.ceil(amount)}`,
       big: amount >= 50,
     });
     if (core.hp <= 0) this.eliminate(core, by);
@@ -515,6 +533,9 @@ export class Battle {
   private eliminate(core: Core, by: TeamId): void {
     core.alive = false;
     core.pendingWeapon = null;
+    // 脱落した時点で残っている色の数 + 1 が最終順位
+    core.place = this.cores.filter((c) => c.alive).length + 1;
+    core.eliminatedAt = this.time;
     for (let i = 0; i < CELL_COUNT; i++) {
       if (this.owner[i] === core.team) this.setOwner(i, NEUTRAL);
     }
@@ -523,6 +544,7 @@ export class Battle {
     }
     this.log(core.team, `${TEAMS[core.team]!.name} eliminated by ${TEAMS[by]!.name}`);
     this.effects.push({ kind: 'explosion', team: by, time: this.time, x: core.x, y: core.y, radius: 80 });
+    this.effects.push({ kind: 'banner', team: core.team, time: this.time, text: `${TEAMS[core.team]!.name.toUpperCase()} ELIMINATED` });
   }
 
   // ---- 弾 ----
@@ -604,7 +626,7 @@ export class Battle {
           return;
         }
         this.setOwner(index, ball.team);
-        ball.power -= 1;
+        ball.power -= POWER_PER_CELL;
         // 空き地 (NEUTRAL) は塗るだけで跳ね返らない
         if (prev !== NEUTRAL) {
           hitEnemy = true;
@@ -658,7 +680,7 @@ export class Battle {
         text: GATE_LABELS[gate.kind],
         big: gate.kind === 'x4' || big,
       });
-      if (big) this.log(ball.team, `${TEAMS[ball.team]!.name} hit ${GATE_LABELS[gate.kind]}: power ${ball.power}`);
+      if (big) this.log(ball.team, `${TEAMS[ball.team]!.name} hit ${GATE_LABELS[gate.kind]}: power ${Math.ceil(ball.power)}`);
       return;
     }
   }
@@ -787,6 +809,7 @@ export class Battle {
     if (alive.length > 1) return;
     this.finished = true;
     this.winner = alive[0]?.team ?? null;
+    if (alive[0]) alive[0].place = 1;
     this.log(this.winner, this.winner === null ? 'Draw' : `${TEAMS[this.winner]!.name} wins!`);
   }
 

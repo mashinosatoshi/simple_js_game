@@ -21,6 +21,7 @@ import {
 const props = defineProps<{ battle: Battle }>();
 
 const EFFECT_SECONDS = 1.2;
+const BANNER_SECONDS = 2.5;
 const NEUTRAL_RGB: Rgb = [138, 143, 152];
 const ITEM_ICONS: Record<ItemKind, string> = { laser: 'L', bomb: 'B', shield: 'S', giant: 'G', spread: 'W' };
 
@@ -215,7 +216,7 @@ function drawBalls(b: Battle) {
     c.lineWidth = 1.5;
     c.strokeStyle = ball.bomb ? teamCss(ball.team) : 'rgba(0, 0, 0, 0.55)';
     c.stroke();
-    if (r >= 8) text(String(ball.power), ball.x, ball.y, Math.min(r * 0.9, 18), '#fff');
+    if (r >= 8) text(String(Math.ceil(ball.power)), ball.x, ball.y, Math.min(r * 0.9, 18), '#fff');
   }
 }
 
@@ -243,6 +244,16 @@ function drawEffects(b: Battle) {
       c.lineWidth = 4;
       c.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
       c.stroke();
+    } else if (e.kind === 'banner') {
+      // 決着後は時間が止まって消えなくなるので出さない (結果は画面のカードで見せる)
+      if (b.finished) continue;
+      // 中央に帯を出し、最後の 0.5 秒で消す
+      const remaining = BANNER_SECONDS - (b.time - e.time);
+      c.globalAlpha = Math.min(1, remaining / 0.5);
+      c.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      c.fillRect(0, FIELD_SIZE / 2 - 34, FIELD_SIZE, 68);
+      text(e.text, FIELD_SIZE / 2, FIELD_SIZE / 2, 38, teamCss(e.team), 'rgba(0, 0, 0, 0.9)');
+      c.globalAlpha = 1;
     } else {
       c.globalAlpha = alpha;
       text(e.text, e.x, e.y - age * 30, e.big ? 24 : 15, teamCss(e.team), 'rgba(0, 0, 0, 0.75)');

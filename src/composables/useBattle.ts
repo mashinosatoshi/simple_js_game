@@ -13,6 +13,8 @@ import { randomSeed } from '../game/rng';
 
 /** 決着してから次の試合が始まるまでの秒数 */
 const NEXT_MATCH_DELAY = 8;
+/** 順位の並べ替えの最短間隔。陣地の割合が近い色同士が毎フレーム入れ替わって表示が震えないようにする */
+const SORT_INTERVAL_MS = 1000;
 const WINS_STORAGE_KEY = 'simple-js-game:wins';
 
 export interface TeamScore {
@@ -24,8 +26,17 @@ export interface TeamScore {
   /** 本拠地の残り耐久の割合 (0〜1) */
   hp: number;
   alive: boolean;
+  /** 最終順位 (1 が優勝)。試合中で決まっていなければ null */
+  place: number | null;
+  /** 脱落した時刻 (秒) */
+  eliminatedAt: number | null;
   /** 状態の表示 (シールド中・連射中・次弾の武器など) */
   status: string[];
+}
+
+/** 順位が決まっている色は順位順、まだ戦っている色はその前に陣地の広い順 */
+function compareScores(a: TeamScore, b: TeamScore): number {
+  return (a.place ?? 0) - (b.place ?? 0) || b.share - a.share;
 }
 
 /**
@@ -41,9 +52,14 @@ export function useBattle() {
   const nextMatchIn = ref<number | null>(null);
   const wins = ref(loadWins());
 
+  let order: TeamId[] = [...TEAM_IDS];
+  let lastSortAt = -Infinity;
+  let lastAliveCount = TEAM_IDS.length;
+
   function startMatch(seed: number) {
     battle.value = markRaw(new Battle({ seed }));
     nextMatchIn.value = null;
+    lastSortAt = -Infinity;
     writeSeedToUrl(seed);
     refresh();
   }
@@ -52,7 +68,7 @@ export function useBattle() {
     const b = battle.value;
     elapsed.value = b.time;
     events.value = b.events.slice(-6).reverse();
-    scores.value = TEAM_IDS.map((team) => {
+    const all = TEAM_IDS.map((team): TeamScore => {
       const core = b.cores[team]!;
       const status: string[] = [];
       if (core.alive) {
@@ -68,9 +84,20 @@ export function useBattle() {
         share: b.cellCounts[team]! / CELL_COUNT,
         hp: core.hp / CORE_MAX_HP,
         alive: core.alive,
+        place: core.place,
+        eliminatedAt: core.eliminatedAt,
         status,
       };
-    }).sort((a, b) => Number(b.alive) - Number(a.alive) || b.share - a.share);
+    });
+    // 並べ替えは一定間隔ごと。ただし脱落や決着で順位が確定したときはすぐに反映する
+    const aliveCount = b.aliveTeams().length;
+    const now = performance.now();
+    if (now - lastSortAt >= SORT_INTERVAL_MS || aliveCount !== lastAliveCount || b.finished) {
+      order = [...all].sort(compareScores).map((s) => s.team);
+      lastSortAt = now;
+      lastAliveCount = aliveCount;
+    }
+    scores.value = order.map((team) => all[team]!);
   }
 
   let lastFrame: number | undefined;

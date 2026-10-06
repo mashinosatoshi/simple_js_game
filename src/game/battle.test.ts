@@ -3,9 +3,11 @@ import {
   Battle,
   cellIndex,
   CELL_COUNT,
+  CELL_SIZE,
   CORE_MAX_HP,
   GRID_SIZE,
   NEUTRAL,
+  POWER_PER_CELL,
   type TeamId,
 } from './battle';
 
@@ -27,8 +29,8 @@ function countCells(battle: Battle, team: TeamId): number {
 
 /** 矩形 (論理座標) の中のマスを team の色にする */
 function paintRect(battle: Battle, team: TeamId, x1: number, y1: number, x2: number, y2: number): void {
-  for (let cy = Math.floor(y1 / 10); cy < Math.ceil(y2 / 10); cy++) {
-    for (let cx = Math.floor(x1 / 10); cx < Math.ceil(x2 / 10); cx++) battle.setOwner(cellIndex(cx, cy), team);
+  for (let cy = Math.floor(y1 / CELL_SIZE); cy < Math.ceil(y2 / CELL_SIZE); cy++) {
+    for (let cx = Math.floor(x1 / CELL_SIZE); cx < Math.ceil(x2 / CELL_SIZE); cx++) battle.setOwner(cellIndex(cx, cy), team);
   }
 }
 
@@ -60,7 +62,7 @@ describe('弾', () => {
     advance(battle, 0.3);
     const painted = battle.cellCounts[0]! - CELL_COUNT / 4;
     expect(painted).toBeGreaterThan(0);
-    expect(ball.power).toBe(10 - painted);
+    expect(ball.power).toBe(10 - painted * POWER_PER_CELL);
     expect(battle.cellCounts[1]).toBe(CELL_COUNT / 4 - painted);
     if (ball.power > 0) expect(ball.vx).toBeLessThan(0);
   });
@@ -99,6 +101,8 @@ describe('本拠地', () => {
     expect(battle.cellCounts[0]).toBe(0);
     expect(battle.owner.filter((o) => o === NEUTRAL).length).toBeGreaterThan(0);
     expect(battle.events.at(-1)?.text).toContain('eliminated');
+    expect(core.place).toBe(4);
+    expect(core.eliminatedAt).not.toBeNull();
   });
 
   it('最後の 1 色になったら勝利で試合が終わる', () => {
@@ -108,6 +112,9 @@ describe('本拠地', () => {
     advance(battle, 1);
     expect(battle.finished).toBe(true);
     expect(battle.winner).toBe(0);
+    // 1 位から 4 位までがすべて決まっている
+    expect(battle.cores.map((c) => c.place).sort()).toEqual([1, 2, 3, 4]);
+    expect(battle.cores[0]!.place).toBe(1);
   });
 });
 

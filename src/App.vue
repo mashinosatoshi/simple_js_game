@@ -2,7 +2,7 @@
 import BattleBoard from './components/BattleBoard.vue';
 import { useBattle } from './composables/useBattle';
 import { TEAMS } from './game/battle';
-import { formatClock, formatPercent } from './game/format';
+import { formatClock, formatPercent, formatPlace } from './game/format';
 
 const { battle, scores, events, elapsed, speed, nextMatchIn, wins, skip, replay } = useBattle();
 const SPEEDS = [1, 2, 4];
@@ -25,12 +25,33 @@ const SPEEDS = [1, 2, 4];
     <section class="board-wrap">
       <BattleBoard :battle="battle" />
       <div v-if="battle.finished" class="result">
-        <p v-if="battle.winner !== null" class="result-title" :style="{ color: TEAMS[battle.winner]!.color }">
-          {{ TEAMS[battle.winner]!.name }} wins!
-        </p>
-        <p v-else class="result-title">Draw</p>
-        <p v-if="nextMatchIn !== null" class="result-sub">Next match in {{ Math.ceil(nextMatchIn) }}s</p>
-        <button @click="replay">Watch again</button>
+        <div class="result-card">
+          <div
+            class="result-head"
+            :style="{ background: battle.winner === null ? 'var(--muted)' : TEAMS[battle.winner]!.color }"
+          >
+            <p class="result-label">{{ battle.winner === null ? 'Result' : 'Winner' }}</p>
+            <p class="result-title">{{ battle.winner === null ? 'Draw' : `${TEAMS[battle.winner]!.name} wins!` }}</p>
+          </div>
+          <ol class="result-ranking">
+            <li v-for="s in scores" :key="s.team" :class="{ first: s.place === 1 }">
+              <span class="result-place">{{ s.place ? formatPlace(s.place) : '-' }}</span>
+              <span class="chip" :style="{ background: s.color }"></span>
+              <span class="result-name">{{ s.name }}</span>
+              <span class="result-note">
+                {{ s.place === 1 ? 'Last one standing' : s.eliminatedAt !== null ? `Out at ${formatClock(Math.floor(s.eliminatedAt))}` : '' }}
+              </span>
+            </li>
+          </ol>
+          <p class="result-sub">
+            Match time {{ formatClock(Math.floor(elapsed)) }}
+            <template v-if="nextMatchIn !== null"> · Next match in {{ Math.ceil(nextMatchIn) }}s</template>
+          </p>
+          <div class="result-actions">
+            <button @click="replay">Watch again</button>
+            <button class="primary" @click="skip">Next match</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -38,20 +59,23 @@ const SPEEDS = [1, 2, 4];
       <section class="panel">
         <h2>Standings</h2>
         <ol class="scores">
+          <!-- 行の高さが変わると画面が揺れるので、どの状態でも同じ行数で表示する -->
           <li v-for="(s, i) in scores" :key="s.team" class="score" :class="{ out: !s.alive }">
-            <span class="rank">{{ s.alive ? i + 1 : '-' }}</span>
+            <span class="rank">{{ s.place ? formatPlace(s.place) : i + 1 }}</span>
             <span class="chip" :style="{ background: s.color }"></span>
             <div class="score-body">
               <div class="score-head">
                 <strong>{{ s.name }}</strong>
-                <span v-if="s.alive">{{ formatPercent(s.share) }}</span>
+                <span v-if="s.place === 1">Winner</span>
+                <span v-else-if="s.alive">{{ formatPercent(s.share) }}</span>
                 <span v-else>Out</span>
               </div>
               <div class="bar"><div :style="{ width: `${s.share * 100}%`, background: s.color }"></div></div>
-              <div v-if="s.alive" class="hp">
-                Base <div class="bar thin"><div :style="{ width: `${s.hp * 100}%` }"></div></div>
+              <div class="hp">
+                <template v-if="s.alive">Base <div class="bar thin"><div :style="{ width: `${s.hp * 100}%` }"></div></div></template>
+                <template v-else-if="s.eliminatedAt !== null">Eliminated at {{ formatClock(Math.floor(s.eliminatedAt)) }}</template>
               </div>
-              <div v-if="s.status.length" class="status">{{ s.status.join(' · ') }}</div>
+              <div class="status">{{ s.status.join(' · ') }}</div>
             </div>
           </li>
         </ol>
