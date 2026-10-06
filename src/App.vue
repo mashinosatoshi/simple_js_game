@@ -51,7 +51,7 @@ function onReset() {
       <PlinkoBoard :sim="game.sim" :nets="nets" :zone-half-width="DROP_ZONE_HALF_WIDTH" @drop="game.drop" />
       <button v-if="rescuable" class="primary big" @click="game.rescue">ボールがなくなりました。5 個もらう</button>
       <button v-else class="primary big" :disabled="state.balls < 1" @click="game.drop()">ボールを落とす</button>
-      <p class="hint">盤面をタップすると、その位置から落とせます。1 回あたりの平均: {{ formatNet(expectedNet, true) }} 個</p>
+      <p class="hint">盤面をタップすると、その位置から落とせます。1 個ずつ落としたときの平均: {{ formatNet(expectedNet, true) }} 個（たくさん同時に落とすと端に散りやすくなります）</p>
     </section>
 
     <section class="panel">

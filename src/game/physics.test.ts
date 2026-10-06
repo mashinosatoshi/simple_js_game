@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PlinkoSim, SLOT_COUNT } from './physics';
+import { BALL_RADIUS, PlinkoSim, SLOT_COUNT } from './physics';
 import { BASE_SLOT_NETS, SLOT_PROBABILITIES } from './state';
 
 /** テストの結果を毎回同じにするための、シード付きの乱数 (mulberry32) */
@@ -12,8 +12,11 @@ function seededRandom(seed: number): () => number {
   };
 }
 
-/** count 個を順に落とし、全部着地するまで進める。各枠の着地数と、着地までの最長秒数を返す */
-function simulate(count: number, seed: number) {
+/**
+ * count 個を順に落とし、全部着地するまで進める。各枠の着地数と、着地までの最長秒数を返す。
+ * maxOnBoard: 盤面に同時に置くボールの上限。1 ならボール同士がぶつからない
+ */
+function simulate(count: number, seed: number, maxOnBoard: number) {
   const random = seededRandom(seed);
   const sim = new PlinkoSim(random);
   const counts = new Array<number>(SLOT_COUNT).fill(0);
@@ -22,7 +25,7 @@ function simulate(count: number, seed: number) {
   let landed = 0;
   let maxLifetime = 0;
   while (landed < count) {
-    if (dropped < count && sim.balls.length < 100) {
+    if (dropped < count && sim.balls.length < maxOnBoard) {
       sim.drop(random() * 2 - 1);
       dropped++;
     }
@@ -45,17 +48,31 @@ describe('PlinkoSim', () => {
     expect(SLOT_COUNT).toBe(BASE_SLOT_NETS.length);
   });
 
-  it('着地の分布が SLOT_PROBABILITIES (期待値計算に使う値) とおおむね一致する', () => {
+  // ボール同士がぶつかると端に散りやすくなるので、オフライン進行の期待値は 1 個ずつ落とした場合の (控えめな) 分布で計算する
+  it('1 個ずつ落としたときの着地の分布が SLOT_PROBABILITIES (期待値計算に使う値) とおおむね一致する', () => {
     const n = 3000;
-    const { counts } = simulate(n, 42);
+    const { counts } = simulate(n, 42, 1);
     counts.forEach((c, i) => {
       expect(Math.abs(c / n - SLOT_PROBABILITIES[i]!)).toBeLessThan(0.03);
     });
   });
 
-  it('ボールが途中で引っかからずに数秒で着地する', () => {
-    const { maxLifetime } = simulate(500, 7);
+  it('大量に落としてもボール同士が詰まらずに数秒で着地する', () => {
+    const { maxLifetime } = simulate(1000, 7, 150);
     expect(maxLifetime).toBeLessThan(6);
+  });
+
+  it('ボール同士が重ならない', () => {
+    const sim = new PlinkoSim(seededRandom(3));
+    for (let i = 0; i < 120; i++) {
+      sim.drop(0);
+      sim.update(1 / 30);
+    }
+    for (const a of sim.balls) {
+      for (const b of sim.balls) {
+        if (a.id < b.id) expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(BALL_RADIUS * 2 * 0.8);
+      }
+    }
   });
 
   it('盤面が満杯ならそれ以上落とせない', () => {

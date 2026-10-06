@@ -20,6 +20,8 @@ export const MAX_BALLS = 300;
 
 const GRAVITY = 2000;
 const RESTITUTION = 0.3;
+/** ボール同士がぶつかったときの反発係数 */
+const BALL_RESTITUTION = 0.5;
 const WALL_HALF_THICKNESS = 1;
 const STEP_SECONDS = 1 / 240;
 /** 1 回の update で進める最大秒数。タブ復帰直後などに大量のステップを回さないため */
@@ -183,7 +185,6 @@ export class PlinkoSim {
 
   private step(landed: Landing[]): void {
     this.time += STEP_SECONDS;
-    const remaining: Ball[] = [];
     for (const ball of this.balls) {
       ball.vy += GRAVITY * STEP_SECONDS;
       const speed = Math.hypot(ball.vx, ball.vy);
@@ -193,7 +194,13 @@ export class PlinkoSim {
       }
       ball.x += ball.vx * STEP_SECONDS;
       ball.y += ball.vy * STEP_SECONDS;
+    }
 
+    this.collideBalls();
+
+    // 釘と壁はボール同士の衝突より後に処理し、押し出されたボールが壁にめり込まないようにする
+    const remaining: Ball[] = [];
+    for (const ball of this.balls) {
       this.collidePegs(ball);
       for (const wall of this.walls) collideSegment(ball, wall);
       // 横に速すぎると釘の列に沿って斜めに滑り続けてしまうので抑える
@@ -206,6 +213,65 @@ export class PlinkoSim {
       }
     }
     this.balls = remaining;
+  }
+
+  /**
+   * ボール同士の衝突。全ペアを調べると重いので、盤面をボールの直径の大きさのマスに分け、
+   * 隣接するマスにいるボール同士だけを調べる
+   */
+  private collideBalls(): void {
+    const cellSize = BALL_RADIUS * 2;
+    const cellKey = (cx: number, cy: number) => cx * 4096 + cy;
+    const grid = new Map<number, Ball[]>();
+    for (const ball of this.balls) {
+      const key = cellKey(Math.floor(ball.x / cellSize), Math.floor(ball.y / cellSize));
+      const cell = grid.get(key);
+      if (cell) cell.push(ball);
+      else grid.set(key, [ball]);
+    }
+    for (const ball of this.balls) {
+      const cx = Math.floor(ball.x / cellSize);
+      const cy = Math.floor(ball.y / cellSize);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (const other of grid.get(cellKey(cx + dx, cy + dy)) ?? []) {
+            // 同じペアを 2 回処理しないよう、id の小さい側からだけ処理する
+            if (other.id > ball.id) this.collideBallPair(ball, other);
+          }
+        }
+      }
+    }
+  }
+
+  private collideBallPair(a: Ball, b: Ball): void {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    const minDist = BALL_RADIUS * 2;
+    let d2 = dx * dx + dy * dy;
+    if (d2 >= minDist * minDist) return;
+    if (d2 === 0) {
+      // 完全に重なっている (同じ位置に連続で落とした) ときは横にずらす
+      dx = this.randomSign() * 0.01;
+      dy = 0;
+      d2 = dx * dx;
+    }
+    const d = Math.sqrt(d2);
+    const nx = dx / d;
+    const ny = dy / d;
+    // 同じ重さなので、めり込んだ分を半分ずつ押し戻す
+    const push = (minDist - d) / 2;
+    a.x -= nx * push;
+    a.y -= ny * push;
+    b.x += nx * push;
+    b.y += ny * push;
+    // 近づいているときだけ、法線方向の速度を交換するように跳ね返す
+    const vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+    if (vn >= 0) return;
+    const impulse = (-(1 + BALL_RESTITUTION) * vn) / 2;
+    a.vx -= impulse * nx;
+    a.vy -= impulse * ny;
+    b.vx += impulse * nx;
+    b.vy += impulse * ny;
   }
 
   private collidePegs(ball: Ball): void {
