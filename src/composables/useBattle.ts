@@ -25,6 +25,8 @@ export interface TeamScore {
   share: number;
   /** 本拠地の残り耐久の割合 (0〜1) */
   hp: number;
+  /** 本拠地の残り耐久 (表示用に切り上げた値) */
+  hpValue: number;
   alive: boolean;
   /** 最終順位 (1 が優勝)。試合中で決まっていなければ null */
   place: number | null;
@@ -75,7 +77,7 @@ export function useBattle() {
         if (b.time < core.shieldUntil) status.push('Shielded');
         if (b.time < core.rushUntil) status.push('Rapid fire');
         if (core.pendingWeapon) status.push(`Next shot: ${ITEM_LABELS[core.pendingWeapon]}`);
-        if (core.zoneEnemyCells > 0) status.push('Base under attack');
+        if (core.zoneDamageRate > 0) status.push(`Base losing ${core.zoneDamageRate.toFixed(1)} HP/s`);
       }
       return {
         team,
@@ -83,6 +85,7 @@ export function useBattle() {
         color: TEAMS[team]!.color,
         share: b.cellCounts[team]! / CELL_COUNT,
         hp: core.hp / CORE_MAX_HP,
+        hpValue: Math.ceil(core.hp),
         alive: core.alive,
         place: core.place,
         eliminatedAt: core.eliminatedAt,

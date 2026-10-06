@@ -23,36 +23,42 @@ const SPEEDS = [1, 2, 4];
     </header>
 
     <section class="board-wrap">
-      <BattleBoard :battle="battle" />
-      <div v-if="battle.finished" class="result">
-        <div class="result-card">
-          <div
-            class="result-head"
-            :style="{ background: battle.winner === null ? 'var(--muted)' : TEAMS[battle.winner]!.color }"
-          >
-            <p class="result-label">{{ battle.winner === null ? 'Result' : 'Winner' }}</p>
-            <p class="result-title">{{ battle.winner === null ? 'Draw' : `${TEAMS[battle.winner]!.name} wins!` }}</p>
-          </div>
-          <ol class="result-ranking">
-            <li v-for="s in scores" :key="s.team" :class="{ first: s.place === 1 }">
-              <span class="result-place">{{ s.place ? formatPlace(s.place) : '-' }}</span>
-              <span class="chip" :style="{ background: s.color }"></span>
-              <span class="result-name">{{ s.name }}</span>
-              <span class="result-note">
-                {{ s.place === 1 ? 'Last one standing' : s.eliminatedAt !== null ? `Out at ${formatClock(Math.floor(s.eliminatedAt))}` : '' }}
-              </span>
-            </li>
-          </ol>
-          <p class="result-sub">
-            Match time {{ formatClock(Math.floor(elapsed)) }}
-            <template v-if="nextMatchIn !== null"> · Next match in {{ Math.ceil(nextMatchIn) }}s</template>
-          </p>
-          <div class="result-actions">
-            <button @click="replay">Watch again</button>
-            <button class="primary" @click="skip">Next match</button>
+      <div class="board-frame">
+        <BattleBoard :battle="battle" />
+        <div v-if="battle.finished" class="result">
+          <div class="result-card">
+            <div
+              class="result-head"
+              :style="{ background: battle.winner === null ? 'var(--muted)' : TEAMS[battle.winner]!.color }"
+            >
+              <p class="result-label">{{ battle.winner === null ? 'Result' : 'Winner' }}</p>
+              <p class="result-title">{{ battle.winner === null ? 'Draw' : `${TEAMS[battle.winner]!.name} wins!` }}</p>
+            </div>
+            <ol class="result-ranking">
+              <li v-for="s in scores" :key="s.team" :class="{ first: s.place === 1 }">
+                <span class="result-place">{{ s.place ? formatPlace(s.place) : '-' }}</span>
+                <span class="chip" :style="{ background: s.color }"></span>
+                <span class="result-name">{{ s.name }}</span>
+                <span class="result-note">
+                  {{ s.place === 1 ? 'Last one standing' : s.eliminatedAt !== null ? `Out at ${formatClock(Math.floor(s.eliminatedAt))}` : '' }}
+                </span>
+              </li>
+            </ol>
+            <p class="result-sub">
+              Match time {{ formatClock(Math.floor(elapsed)) }}
+              <template v-if="nextMatchIn !== null"> · Next match in {{ Math.ceil(nextMatchIn) }}s</template>
+            </p>
+            <div class="result-actions">
+              <button @click="replay">Watch again</button>
+              <button class="primary" @click="skip">Next match</button>
+            </div>
           </div>
         </div>
       </div>
+      <p class="board-hint">
+        <span class="hint-zone"></span>
+        Enemy color inside a base's dotted circle (flashing red) drains that base's HP. A base at 0 HP is eliminated.
+      </p>
     </section>
 
     <aside class="side">
@@ -72,7 +78,10 @@ const SPEEDS = [1, 2, 4];
               </div>
               <div class="bar"><div :style="{ width: `${s.share * 100}%`, background: s.color }"></div></div>
               <div class="hp">
-                <template v-if="s.alive">Base <div class="bar thin"><div :style="{ width: `${s.hp * 100}%` }"></div></div></template>
+                <template v-if="s.alive">
+                  <span class="hp-label">Base {{ s.hpValue }}</span>
+                  <div class="bar thin"><div :style="{ width: `${s.hp * 100}%` }"></div></div>
+                </template>
                 <template v-else-if="s.eliminatedAt !== null">Eliminated at {{ formatClock(Math.floor(s.eliminatedAt)) }}</template>
               </div>
               <div class="status">{{ s.status.join(' · ') }}</div>
@@ -115,7 +124,12 @@ const SPEEDS = [1, 2, 4];
           <li><strong>×2 / ×4 gates</strong> multiply a ball's power and size. A <strong>Split</strong> gate splits a ball into three. Each ball can use only one gate.</li>
           <li>Items power up that color's next shot: <strong>L</strong> Laser, <strong>B</strong> Bomb, <strong>G</strong> Giant ball, <strong>W</strong> Wide (5-way) shot. <strong>S</strong> Shield protects the base for a while.</li>
           <li>A ball that drops into the <strong>RUSH</strong> hole in the center gives its color 5 seconds of rapid fire. The hole then closes for a while.</li>
-          <li>Enemy territory inside the dotted circle around a base wears the base down, and enemy balls that hit the base damage it directly. A color whose base reaches 0 is eliminated.</li>
+          <li>
+            <strong>How a base loses HP:</strong> every base has 100 HP and a dotted circle around it. Any enemy color inside that circle
+            (flashing red) drains the base every second — the more enemy territory inside, the faster. The drain stops when the base is
+            shielded or the enemy color is pushed back out. Lasers and enemy balls that reach the base also deal damage.
+          </li>
+          <li>A color whose base reaches 0 HP is eliminated, and its territory turns gray.</li>
           <li>There is no time limit. Ball power grows over time, and after 1:30 the dotted circles start expanding (sudden death). The last color standing wins.</li>
         </ul>
       </details>

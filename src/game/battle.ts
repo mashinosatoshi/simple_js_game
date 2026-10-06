@@ -65,16 +65,21 @@ const GATE_SPEED = 25;
 /** ゲートとアイテムが動き回る範囲 (中央寄り) */
 const GIMMICK_AREA = { min: 130, max: FIELD_SIZE - 130 } as const;
 const GIANT_MULTIPLIER = 4;
+/** 通常弾の何倍のパワーになったら「大当たり」として実況に流すか */
+const BIG_POWER_MULTIPLIER = 8;
 const SPREAD_COUNT = 5;
 const SPREAD_ANGLE = 0.5;
-const LASER_WIDTH = 9;
-/** レーザーが塗れる量 (パワー換算) */
-const LASER_POWER = 80;
-const LASER_CORE_DAMAGE_MULTIPLIER = 4;
+const LASER_WIDTH = 6;
+/** レーザーが塗れる量 (その時点の通常弾のパワーの何倍か) */
+const LASER_POWER_MULTIPLIER = 2;
+/** レーザーが通り道の本拠地に与えるダメージ (通常弾のパワーの何倍か) */
+const LASER_CORE_DAMAGE_MULTIPLIER = 1;
 const BOMB_RADIUS = 60;
 /** 本拠地の周りの敵の陣地 (10×10 の面積) につき、1 秒あたりに受けるダメージ */
 const ZONE_DAMAGE_PER_CELL = 0.3;
 const ZONE_CHECK_INTERVAL = 0.5;
+/** 本拠地の周りの敵の陣地で削られた量を、本拠地の上に数字で出す間隔 */
+const ZONE_TEXT_INTERVAL = 1;
 /**
  * 制限時間がない代わりに、この秒数を過ぎると本拠地の周りの範囲が広がり始める (サドンデス)。
  * 範囲が広がるほど敵のマスが入りやすくなり、いずれ必ず決着がつく
@@ -133,6 +138,11 @@ export interface Core {
   pendingWeapon: Weapon | null;
   /** 本拠地の周りにある敵のマスの数 (ZONE_CHECK_INTERVAL ごとに更新) */
   zoneEnemyCells: number;
+  /** 本拠地の周りの敵の陣地によって、今 1 秒あたりに減っている耐久 */
+  zoneDamageRate: number;
+  /** まだ数字で表示していない、本拠地の周りの敵の陣地によるダメージ */
+  unshownZoneDamage: number;
+  lastZoneTextAt: number;
   /** 最終順位 (1 が優勝)。決まるまでは null */
   place: number | null;
   /** 脱落した時刻 (秒) */
@@ -272,6 +282,9 @@ export class Battle {
         shieldUntil: -Infinity,
         pendingWeapon: null,
         zoneEnemyCells: 0,
+        zoneDamageRate: 0,
+        unshownZoneDamage: 0,
+        lastZoneTextAt: -Infinity,
         place: null,
         eliminatedAt: null,
       };
@@ -444,7 +457,7 @@ export class Battle {
     let y = core.y + dy * CORE_RADIUS;
     const x1 = x;
     const y1 = y;
-    let budget = LASER_POWER / POWER_PER_CELL;
+    let budget = (this.basePower() * LASER_POWER_MULTIPLIER) / POWER_PER_CELL;
     const hitCores = new Set<TeamId>();
     while (budget > 0 && x >= 0 && x <= FIELD_SIZE && y >= 0 && y <= FIELD_SIZE) {
       budget -= this.paintCircle(core.team, x, y, LASER_WIDTH, budget);
@@ -507,10 +520,28 @@ export class Battle {
         }
       }
       core.zoneEnemyCells = counts.reduce((a, b) => a + b, 0);
+      core.zoneDamageRate = 0;
       if (core.zoneEnemyCells === 0 || this.time < core.shieldUntil) continue;
       const attacker = counts.indexOf(Math.max(...counts)) as TeamId;
-      const damage = core.zoneEnemyCells * POWER_PER_CELL * ZONE_DAMAGE_PER_CELL * ZONE_CHECK_INTERVAL;
+      core.zoneDamageRate = core.zoneEnemyCells * POWER_PER_CELL * ZONE_DAMAGE_PER_CELL;
+      const damage = core.zoneDamageRate * ZONE_CHECK_INTERVAL;
       core.hp = Math.max(0, core.hp - damage);
+      // 何が本拠地を削っているのかが見えるよう、削られた量を一定間隔で数字にして出す
+      core.unshownZoneDamage += damage;
+      if (this.time - core.lastZoneTextAt >= ZONE_TEXT_INTERVAL && core.unshownZoneDamage >= 1) {
+        const shown = Math.floor(core.unshownZoneDamage);
+        core.unshownZoneDamage -= shown;
+        core.lastZoneTextAt = this.time;
+        this.effects.push({
+          kind: 'text',
+          team: attacker,
+          time: this.time,
+          x: core.x,
+          y: core.y - CORE_RADIUS - 8,
+          text: `-${shown}`,
+          big: false,
+        });
+      }
       if (core.hp <= 0) this.eliminate(core, attacker);
     }
   }
@@ -670,7 +701,9 @@ export class Battle {
           if (child) child.gated = true;
         }
       }
-      const big = ball.power >= 100 && before < 100;
+      // 通常弾の何倍にもなった大当たりだけを実況に流す (終盤は ×4 だけで 100 を超えるので、固定の値では多すぎる)
+      const bigPower = this.basePower() * BIG_POWER_MULTIPLIER;
+      const big = ball.power >= bigPower && before < bigPower;
       this.effects.push({
         kind: 'text',
         team: ball.team,

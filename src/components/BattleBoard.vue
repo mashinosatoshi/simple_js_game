@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue';
 import {
   ballRadius,
   CELL_COUNT,
+  CELL_SIZE,
   CORE_RADIUS,
   CORE_MAX_HP,
   FIELD_SIZE,
@@ -23,6 +24,8 @@ const props = defineProps<{ battle: Battle }>();
 const EFFECT_SECONDS = 1.2;
 const BANNER_SECONDS = 2.5;
 const NEUTRAL_RGB: Rgb = [138, 143, 152];
+/** 本拠地を削っている敵のマスに重ねる色 */
+const DANGER_RGB: Rgb = [200, 0, 20];
 const ITEM_ICONS: Record<ItemKind, string> = { laser: 'L', bomb: 'B', shield: 'S', giant: 'G', spread: 'W' };
 
 type Rgb = [number, number, number];
@@ -69,12 +72,28 @@ function resize() {
 
 function drawCells(b: Battle) {
   const data = gridImage.data;
+  // 本拠地の周りの円の中にある敵のマス (= 本拠地を削っているマス) を赤く点滅させる
+  const zoneRadius = b.coreZoneRadius();
+  const zoneRadius2 = zoneRadius * zoneRadius;
+  const aliveCores = b.cores.filter((c) => c.alive);
+  const danger = 0.45 + 0.2 * Math.sin(b.time * 8);
   for (let i = 0; i < CELL_COUNT; i++) {
     const owner = b.owner[i]!;
-    const [r, g, bl] = owner === NEUTRAL ? NEUTRAL_RGB : teamRgb[owner]!;
-    data[i * 4] = r;
-    data[i * 4 + 1] = g;
-    data[i * 4 + 2] = bl;
+    let rgb = owner === NEUTRAL ? NEUTRAL_RGB : teamRgb[owner]!;
+    if (owner !== NEUTRAL) {
+      const x = ((i % GRID_SIZE) + 0.5) * CELL_SIZE;
+      const y = (Math.floor(i / GRID_SIZE) + 0.5) * CELL_SIZE;
+      for (const core of aliveCores) {
+        if (core.team === owner) continue;
+        if ((x - core.x) ** 2 + (y - core.y) ** 2 <= zoneRadius2) {
+          rgb = mix(rgb, DANGER_RGB, danger);
+          break;
+        }
+      }
+    }
+    data[i * 4] = rgb[0];
+    data[i * 4 + 1] = rgb[1];
+    data[i * 4 + 2] = rgb[2];
     data[i * 4 + 3] = 255;
   }
   gridCtx.putImageData(gridImage, 0, 0);

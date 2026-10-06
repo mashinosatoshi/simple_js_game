@@ -118,7 +118,29 @@ body {
 
 .board-wrap {
   grid-area: board;
+}
+
+.board-frame {
   position: relative;
+}
+
+.board-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 2px 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* 本拠地の周りの点線の円と、その中で赤く点滅するマスを表す小さな見本 */
+.hint-zone {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px dashed var(--muted);
+  background: rgba(200, 0, 20, 0.55);
 }
 
 .result {
@@ -326,6 +348,12 @@ button.link {
   flex: 1;
 }
 
+.hp-label {
+  /* 耐久の数字の桁が変わってもバーの位置が動かないよう幅を固定する */
+  width: 5.2em;
+  flex-shrink: 0;
+}
+
 .bar.thin > div {
   background: var(--muted);
 }
@@ -334,6 +362,7 @@ button.link {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-variant-numeric: tabular-nums;
   font-size: 0.75rem;
   color: var(--muted);
   margin-top: 4px;

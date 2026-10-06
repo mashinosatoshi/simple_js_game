@@ -93,6 +93,9 @@ describe('本拠地', () => {
     advance(battle, 1);
     const core = battle.cores[0]!;
     expect(core.hp).toBeLessThan(CORE_MAX_HP);
+    // 1 秒あたりの減り方と、削られた量の数字 (演出) が出ている
+    expect(core.zoneDamageRate).toBeGreaterThan(0);
+    expect(battle.effects.some((e) => e.kind === 'text' && e.text.startsWith('-'))).toBe(true);
 
     core.hp = 0.01;
     advance(battle, 0.6);
