@@ -1,93 +1,98 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import PlinkoBoard from './components/PlinkoBoard.vue';
-import { DROP_ZONE_HALF_WIDTH, useGame } from './composables/useGame';
-import { formatDuration, formatNet, formatNumber } from './game/format';
+import BattleBoard from './components/BattleBoard.vue';
+import { useBattle } from './composables/useBattle';
+import { TEAMS } from './game/battle';
+import { formatClock, formatPercent } from './game/format';
 
-const game = useGame();
-const { state, offlineReport, ballsOnBoard, nets, perSecond, expectedNet, rescuable, upgrades } = game;
-
-const saveText = ref('');
-const saveMessage = ref('');
-
-function onExport() {
-  game.save();
-  saveText.value = game.exportSave();
-  saveMessage.value = 'セーブデータを書き出しました。テキストをコピーして保管してください。';
-}
-
-function onImport() {
-  saveMessage.value = game.importSave(saveText.value)
-    ? 'セーブデータを読み込みました。'
-    : '読み込めませんでした。テキストが正しいか確認してください。';
-}
-
-function onReset() {
-  if (!confirm('進行状況をすべて消去します。よろしいですか？')) return;
-  game.reset();
-  saveText.value = '';
-  saveMessage.value = 'リセットしました。';
-}
+const { battle, scores, events, remaining, speed, nextMatchIn, wins, skip, replay } = useBattle();
+const SPEEDS = [1, 2, 4];
 </script>
 
 <template>
-  <main class="container">
+  <main class="layout">
     <header class="header">
-      <h1>Ball Drop</h1>
-      <p class="balls">{{ formatNumber(state.balls) }} <span class="unit">個</span></p>
-      <p class="sub">
-        落下中 {{ ballsOnBoard }} 個
-        <template v-if="perSecond > 0"> ・ 自動 {{ formatNumber(perSecond, true) }} 個/秒</template>
-      </p>
+      <h1>Color Gate Wars</h1>
+      <div class="header-right">
+        <span class="clock" :class="{ urgent: remaining <= 30 && !battle.finished }">残り {{ formatClock(remaining) }}</span>
+        <div class="speeds" role="group" aria-label="再生速度">
+          <button v-for="s in SPEEDS" :key="s" :class="{ active: speed === s }" @click="speed = s">×{{ s }}</button>
+        </div>
+      </div>
     </header>
 
-    <div v-if="offlineReport" class="notice" role="status">
-      留守の間（{{ formatDuration(offlineReport.seconds) }}）に自動で {{ formatNumber(offlineReport.drops) }} 個落とし、
-      ボールが {{ formatNet(offlineReport.gain) }} 個になりました。
-      <button class="link" @click="offlineReport = null">閉じる</button>
-    </div>
-
-    <section class="panel board-panel">
-      <PlinkoBoard :sim="game.sim" :nets="nets" :zone-half-width="DROP_ZONE_HALF_WIDTH" @drop="game.drop" />
-      <button v-if="rescuable" class="primary big" @click="game.rescue">ボールがなくなりました。5 個もらう</button>
-      <button v-else class="primary big" :disabled="state.balls < 1" @click="game.drop()">ボールを落とす</button>
-      <p class="hint">盤面をタップすると、その位置から落とせます。1 個ずつ落としたときの平均: {{ formatNet(expectedNet, true) }} 個（たくさん同時に落とすと端に散りやすくなります）</p>
-    </section>
-
-    <section class="panel">
-      <h2>アップグレード</h2>
-      <ul class="upgrades">
-        <li v-for="u in upgrades" :key="u.id" class="upgrade">
-          <div>
-            <div class="upgrade-name">
-              {{ u.name }} <span class="level">Lv {{ u.level }}<template v-if="u.maxed"> (最大)</template></span>
-            </div>
-            <div class="upgrade-desc">{{ u.description }}</div>
-          </div>
-          <button class="primary" :disabled="!u.affordable" @click="game.buyUpgrade(u.id)">
-            {{ u.maxed ? '最大' : `${formatNumber(u.cost)} 個` }}
-          </button>
-        </li>
-      </ul>
-    </section>
-
-    <section class="panel stats">
-      <div>最高所持数 <strong>{{ formatNumber(state.bestBalls) }}</strong></div>
-      <div>落とした数 <strong>{{ formatNumber(state.totalDrops) }}</strong></div>
-    </section>
-
-    <details class="panel">
-      <summary>セーブデータ</summary>
-      <p class="hint">
-        進行状況はこのブラウザに自動保存されます。別の端末へ移すときやバックアップには書き出しを使ってください。
-      </p>
-      <textarea v-model="saveText" rows="3" placeholder="ここにセーブデータを貼り付けて「読み込み」"></textarea>
-      <div class="actions">
-        <button @click="onExport">書き出し</button>
-        <button @click="onImport">読み込み</button>
-        <button class="danger" @click="onReset">リセット</button>
+    <section class="board-wrap">
+      <BattleBoard :battle="battle" />
+      <div v-if="battle.finished" class="result">
+        <p v-if="battle.winner !== null" class="result-title" :style="{ color: TEAMS[battle.winner]!.color }">
+          {{ TEAMS[battle.winner]!.name }}の勝利！
+        </p>
+        <p v-else class="result-title">引き分け</p>
+        <p v-if="nextMatchIn !== null" class="result-sub">次の試合まで {{ Math.ceil(nextMatchIn) }} 秒</p>
+        <button @click="replay">もう一度見る</button>
       </div>
-      <p v-if="saveMessage" class="hint">{{ saveMessage }}</p>
-    </details>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>順位</h2>
+        <ol class="scores">
+          <li v-for="(s, i) in scores" :key="s.team" class="score" :class="{ out: !s.alive }">
+            <span class="rank">{{ s.alive ? i + 1 : '-' }}</span>
+            <span class="chip" :style="{ background: s.color }"></span>
+            <div class="score-body">
+              <div class="score-head">
+                <strong>{{ s.name }}</strong>
+                <span v-if="s.alive">{{ formatPercent(s.share) }}</span>
+                <span v-else>脱落</span>
+              </div>
+              <div class="bar"><div :style="{ width: `${s.share * 100}%`, background: s.color }"></div></div>
+              <div v-if="s.alive" class="hp">
+                本拠地 <div class="bar thin"><div :style="{ width: `${s.hp * 100}%` }"></div></div>
+              </div>
+              <div v-if="s.status.length" class="status">{{ s.status.join(' ・ ') }}</div>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="panel">
+        <h2>実況</h2>
+        <ul class="events">
+          <li v-for="e in events" :key="e.id">
+            <span class="event-time">{{ formatClock(Math.floor(e.time)) }}</span>
+            <span class="dot" :style="{ background: e.team === null ? 'var(--muted)' : TEAMS[e.team]!.color }"></span>
+            {{ e.text }}
+          </li>
+          <li v-if="events.length === 0" class="muted">試合開始！</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>通算勝利数</h2>
+        <div class="wins">
+          <span v-for="(t, i) in TEAMS" :key="t.name">
+            <span class="chip" :style="{ background: t.color }"></span>{{ t.name }} {{ wins[i] }}
+          </span>
+        </div>
+        <p class="muted small">
+          試合番号 {{ battle.seed }}（この URL を開くと同じ試合を見られます）
+          <button class="link" @click="skip">次の試合へ</button>
+        </p>
+      </section>
+
+      <details class="panel">
+        <summary>ルール</summary>
+        <ul class="rules">
+          <li>4 隅の本拠地から、各色の砲台が自動で弾を撃ちます。プレイヤーの操作はありません。</li>
+          <li>弾は自分の陣地の上を素通りし、敵の陣地に当たると 1 マスごとにパワー（弾の数字）を 1 使って塗り替え、跳ね返ります。</li>
+          <li>違う色の弾同士がぶつかると、小さい方のパワーの分だけ両方が削られます。</li>
+          <li><strong>×2 / ×4 ゲート</strong>を通るとパワーと大きさが倍増、<strong>分裂ゲート</strong>では弾が 3 つに分かれます。</li>
+          <li>アイテム（レ: レーザー、ボ: ボム、巨: 巨大弾、拡: 拡散、盾: シールド）を弾が取ると、その色の次の 1 発が特殊な攻撃になります。</li>
+          <li>中央の <strong>RUSH</strong> 穴に入ると、その色は 5 秒間連射します。一度当たると穴はしばらく閉じます。</li>
+          <li>本拠地の周りの点線の円を敵に塗られると、本拠地が少しずつ削られます。敵の弾が直接当たるとさらに削られ、0 になると脱落です。</li>
+          <li>最後の 1 色になるか、3 分経った時点で陣地が一番広い色の勝ちです。時間とともに弾のパワーが上がっていきます。</li>
+        </ul>
+      </details>
+    </aside>
   </main>
 </template>
